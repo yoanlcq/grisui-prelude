@@ -178,3 +178,120 @@ extern "system" fn gl_dbg_msg_callback(
 }
 
 
+#[derive(Debug, Hash, PartialEq, Eq)]
+struct Shader(GLuint);
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct VertexShader(Shader);
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct FragmentShader(Shader);
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct Program(GLuint);
+
+impl Drop for Shader {
+    fn drop(&mut self) {
+        unsafe {
+            gl::DeleteShader(self.gl_id());
+        }
+    }
+}
+
+impl Drop for Program {
+    fn drop(&mut self) {
+        unsafe {
+            gl::DeleteProgram(self.gl_id());
+        }
+    }
+}
+
+macro_rules! impl_shader_subtype {
+    ($(($Self:ident $ty:ident))+) => {
+        $(
+            impl $Self {
+                pub fn gl_id(&self) -> GLuint {
+                    self.0.gl_id()
+                }
+                pub fn from_source(src: &[u8]) -> Result<Self, String> {
+                    Ok($Self(Shader::from_source(gl::$ty, src)?))
+                }
+                pub fn info_log(&self) -> String {
+                    self.0.info_log()
+                }
+            }
+        )+
+    };
+}
+
+impl_shader_subtype!{
+    (VertexShader VERTEX_SHADER)
+    (FragmentShader FRAGMENT_SHADER)
+}
+
+impl Shader {
+    pub fn gl_id(&self) -> GLuint {
+        self.0
+    }
+    pub fn from_source(ty: GLenum, src: &[u8]) -> Result<Self, String> {
+        unsafe {
+            let shader = gl::CreateShader(ty);
+            let mut len = src.len() as GLint;
+            if src[len as usize - 1] as char == '\0' {
+                len -= 1;
+            }
+            let glchars = src.as_ptr() as *const GLchar;
+            gl::ShaderSource(shader, 1, &glchars, &len);
+            gl::CompileShader(shader);
+            let mut status = gl::FALSE as GLint;
+            gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut status);
+            
+            let s = Shader(shader);
+            if status == gl::TRUE as _ {
+                return Ok(s);
+            }
+            Err(s.info_log())
+        }
+    }
+    pub fn info_log(&self) -> String {
+        unsafe {
+            let mut len = 0;
+            gl::GetShaderiv(self.gl_id(), gl::INFO_LOG_LENGTH, &mut len);
+            let mut buf: Vec<u8> = Vec::with_capacity((len-1) as _); // -1 to skip trailing null
+            buf.set_len((len-1) as _);
+            gl::GetShaderInfoLog(self.gl_id(), len, ptr::null_mut(), buf.as_mut_ptr() as *mut GLchar);
+            String::from_utf8(buf).unwrap_or("<UTF-8 error>".to_owned())
+        }
+    }
+}
+
+impl Program {
+    pub fn gl_id(&self) -> GLuint {
+        self.0
+    }
+    pub fn from_vert_frag(vs: &VertexShader, fs: &FragmentShader) -> Result<Self, String> {
+        unsafe {
+            let program = gl::CreateProgram();
+            gl::AttachShader(program, vs.gl_id());
+            gl::AttachShader(program, fs.gl_id());
+            gl::LinkProgram(program);
+            gl::DetachShader(program, vs.gl_id());
+            gl::DetachShader(program, fs.gl_id());
+            let mut status = gl::FALSE as GLint;
+            gl::GetProgramiv(program, gl::LINK_STATUS, &mut status);
+            let s = Program(program);
+            if status == gl::TRUE as _ {
+                return Ok(s);
+            }
+            Err(s.info_log())
+        }
+    }
+    pub fn info_log(&self) -> String {
+        unsafe {
+            let mut len: GLint = 0;
+            gl::GetProgramiv(self.gl_id(), gl::INFO_LOG_LENGTH, &mut len);
+            let mut buf: Vec<u8> = Vec::with_capacity((len-1) as usize); // -1 to skip trailing null
+            buf.set_len((len-1) as _);
+            gl::GetProgramInfoLog(self.gl_id(), len, ptr::null_mut(), buf.as_mut_ptr() as *mut GLchar);
+            String::from_utf8(buf).unwrap_or("<UTF-8 error>".to_owned())
+        }
+    }
+}
+

@@ -67,28 +67,25 @@ fn main() {
         Gx::new(&video)
     };
 
-    let vs = match compile_shader(VS_SRC, gl::VERTEX_SHADER) {
+    let vs = match gx::VertexShader::from_source(VS_SRC) {
         Ok(i) => i,
         Err(s) => {
             error!("Failed to compile vertex shader:\n{}", s);
-            0
+            panic!()
         },
     };
-    let fs = match compile_shader(FS_SRC, gl::FRAGMENT_SHADER) {
+    let fs = match gx::FragmentShader::from_source(FS_SRC) {
         Ok(i) => i,
         Err(s) => {
             error!("Failed to compile fragment shader:\n{}", s);
-            0
+            panic!()
         },
     };
-    if fs==0 || vs==0 {
-        panic!("Quitting.");
-    }
-    let program = match link_program(vs, fs) {
+    let program = match gx::Program::from_vert_frag(&vs, &fs) {
         Ok(i) => i,
         Err(s) => {
             error!("Failed to link GL program:\n{}", s);
-            panic!();
+            panic!()
         },
     };
 
@@ -104,18 +101,18 @@ fn main() {
                        (VERTEX_DATA.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
                        mem::transmute(&VERTEX_DATA[0]),
                        gl::STATIC_DRAW);
-        gl::UseProgram(program);
-        gl::GetAttribLocation(program, b"out_color\0".as_ptr() as *const GLchar);
+        gl::UseProgram(program.gl_id());
+        gl::GetAttribLocation(program.gl_id(), b"out_color\0".as_ptr() as *const GLchar);
 
-        let pos_attr = gl::GetAttribLocation(program, b"position\0".as_ptr() as *const GLchar);
+        let pos_attr = gl::GetAttribLocation(program.gl_id(), b"position\0".as_ptr() as *const GLchar);
         gl::EnableVertexAttribArray(pos_attr as GLuint);
         gl::VertexAttribPointer(pos_attr as GLuint, 3, gl::FLOAT,
                                 gl::FALSE as GLboolean, 0, ptr::null());
     }
 
-    gx.label(gx::ObjType::Shader, vs, b"Vertex Shader");
-    gx.label(gx::ObjType::Shader, fs, b"Fragment Shader");
-    gx.label(gx::ObjType::Program, program, b"Program");
+    gx.label(gx::ObjType::Shader, vs.gl_id(), b"Vertex Shader");
+    gx.label(gx::ObjType::Shader, fs.gl_id(), b"Fragment Shader");
+    gx.label(gx::ObjType::Program, program.gl_id(), b"Program");
     gx.label(gx::ObjType::VertexArray, vao, b"VAO");
     gx.label(gx::ObjType::Buffer, vbo, b"VBO");
 
@@ -190,9 +187,6 @@ fn main() {
     }
 
     unsafe {
-        gl::DeleteProgram(program);
-        gl::DeleteShader(fs);
-        gl::DeleteShader(vs);
         gl::DeleteBuffers(1, &vbo);
         gl::DeleteVertexArrays(1, &vao);
     }
@@ -219,53 +213,4 @@ static FS_SRC: &[u8] = b"
         out_color = vec4(0.0, 0.0, 1.0, 1.0);
     }
 \0";
-
-fn compile_shader(src: &[u8], ty: GLenum) -> Result<GLuint, String> {
-    unsafe {
-        let shader = gl::CreateShader(ty);
-        let mut len = src.len() as GLint;
-        if src[len as usize - 1] as char == '\0' {
-            len -= 1;
-        }
-        let glchars = src.as_ptr() as *const GLchar;
-        gl::ShaderSource(shader, 1, &glchars, &len);
-        gl::CompileShader(shader);
-        let mut status = gl::FALSE as GLint;
-        gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut status);
-        
-        if status == gl::TRUE as _ {
-            return Ok(shader);
-        }
-        let mut len = 0;
-        gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut len);
-        let mut buf: Vec<u8> = Vec::with_capacity((len-1) as _); // -1 to skip trailing null
-        buf.set_len((len-1) as _);
-        gl::GetShaderInfoLog(shader, len, ptr::null_mut(), buf.as_mut_ptr() as *mut GLchar);
-        let s = String::from_utf8(buf).unwrap_or("<UTF-8 error>".to_owned());
-        Err(s)
-    }
-}
-
-fn link_program(vs: GLuint, fs: GLuint) -> Result<GLuint, String> {
-    unsafe {
-        let program = gl::CreateProgram();
-        gl::AttachShader(program, vs);
-        gl::AttachShader(program, fs);
-        gl::LinkProgram(program);
-        gl::DetachShader(program, vs);
-        gl::DetachShader(program, fs);
-        let mut status = gl::FALSE as GLint;
-        gl::GetProgramiv(program, gl::LINK_STATUS, &mut status);
-        if status == gl::TRUE as _ {
-            return Ok(program);
-        }
-        let mut len: GLint = 0;
-        gl::GetProgramiv(program, gl::INFO_LOG_LENGTH, &mut len);
-        let mut buf: Vec<u8> = Vec::with_capacity((len-1) as usize); // -1 to skip trailing null
-        buf.set_len((len-1) as _);
-        gl::GetProgramInfoLog(program, len, ptr::null_mut(), buf.as_mut_ptr() as *mut GLchar);
-        let s = String::from_utf8(buf).unwrap_or("<UTF-8 error>".to_owned());
-        Err(s)
-    }
-}
 
