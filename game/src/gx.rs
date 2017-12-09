@@ -186,6 +186,12 @@ pub struct VertexShader(Shader);
 pub struct FragmentShader(Shader);
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct Program(GLuint);
+#[derive(Debug, Hash, PartialEq, Eq)]
+struct Buffer(GLuint);
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct Vbo(Buffer);
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct Vao(GLuint);
 
 impl Drop for Shader {
     fn drop(&mut self) {
@@ -199,6 +205,22 @@ impl Drop for Program {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteProgram(self.gl_id());
+        }
+    }
+}
+
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        unsafe {
+            gl::DeleteBuffers(1, &self.0);
+        }
+    }
+}
+
+impl Drop for Vao {
+    fn drop(&mut self) {
+        unsafe {
+            gl::DeleteVertexArrays(1, &self.0);
         }
     }
 }
@@ -233,6 +255,7 @@ impl Shader {
     pub fn from_source(ty: GLenum, src: &[u8]) -> Result<Self, String> {
         unsafe {
             let shader = gl::CreateShader(ty);
+            assert_ne!(shader, 0);
             let mut len = src.len() as GLint;
             if src[len as usize - 1] as char == '\0' {
                 len -= 1;
@@ -263,12 +286,19 @@ impl Shader {
 }
 
 impl Program {
+    // `use` is a keyword, too bad
+    pub fn use_program(&self) {
+        unsafe { 
+            gl::UseProgram(self.gl_id());
+        }
+    }
     pub fn gl_id(&self) -> GLuint {
         self.0
     }
     pub fn from_vert_frag(vs: &VertexShader, fs: &FragmentShader) -> Result<Self, String> {
         unsafe {
             let program = gl::CreateProgram();
+            assert_ne!(program, 0);
             gl::AttachShader(program, vs.gl_id());
             gl::AttachShader(program, fs.gl_id());
             gl::LinkProgram(program);
@@ -295,3 +325,81 @@ impl Program {
     }
 }
 
+
+impl Vao {
+    pub fn gl_id(&self) -> GLuint {
+        self.0
+    }
+    pub fn new() -> Self {
+        let mut vao = 0;
+        unsafe {
+            gl::GenVertexArrays(1, &mut vao);
+        }
+        assert_ne!(vao, 0);
+        Vao(vao)
+    }
+    pub fn bind(&self) {
+        unsafe {
+            gl::BindVertexArray(self.gl_id());
+        }
+    }
+    pub fn unbind() {
+        unsafe {
+            gl::BindVertexArray(0);
+        }
+    }
+}
+
+impl Buffer {
+    pub fn gl_id(&self) -> GLuint {
+        self.0
+    }
+    pub fn new() -> Self {
+        let mut buffer = 0;
+        unsafe {
+            gl::GenBuffers(1, &mut buffer);
+        }
+        assert_ne!(buffer, 0);
+        Buffer(buffer)
+    }
+}
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum UpdateHint {
+    Never,
+    Occasionally,
+    Often,
+}
+
+impl UpdateHint {
+    pub fn into_glenum_draw(&self) -> GLenum {
+        match *self {
+            UpdateHint::Never => gl::STATIC_DRAW,
+            UpdateHint::Occasionally => gl::DYNAMIC_DRAW,
+            UpdateHint::Often => gl::STREAM_DRAW,
+        }
+    }
+}
+
+impl Vbo {
+    pub fn new() -> Self {
+        Vbo(Buffer::new())
+    }
+    pub fn gl_id(&self) -> GLuint {
+        self.0.gl_id()
+    }
+    pub fn bind(&self) {
+        unsafe {
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.gl_id());
+        }
+    }
+    pub fn set_data<T>(&self, data: &[T], hint: UpdateHint) {
+        unsafe {
+            gl::BufferData(gl::ARRAY_BUFFER,
+                (data.len() * mem::size_of::<T>()) as _,
+                data.as_ptr() as _,
+                hint.into_glenum_draw()
+            );
+        }
+    }
+}

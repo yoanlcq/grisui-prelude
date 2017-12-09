@@ -7,7 +7,6 @@ extern crate log;
 use std::io::Write;
 use std::time::{Instant, Duration};
 use std::thread;
-use std::mem;
 use std::ptr;
 
 use sdl2::event::Event;
@@ -89,19 +88,13 @@ fn main() {
         },
     };
 
-    let mut vao = 0;
-    let mut vbo = 0;
+    let vao = gx::Vao::new();
+    let vbo = gx::Vbo::new();
     unsafe {
-        gl::GenVertexArrays(1, &mut vao);
-        gl::BindVertexArray(vao);
-
-        gl::GenBuffers(1, &mut vbo);
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-        gl::BufferData(gl::ARRAY_BUFFER,
-                       (VERTEX_DATA.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
-                       mem::transmute(&VERTEX_DATA[0]),
-                       gl::STATIC_DRAW);
-        gl::UseProgram(program.gl_id());
+        vao.bind();
+        vbo.bind();
+        vbo.set_data(&VERTEX_DATA, gx::UpdateHint::Never);
+        program.use_program();
         gl::GetAttribLocation(program.gl_id(), b"out_color\0".as_ptr() as *const GLchar);
 
         let pos_attr = gl::GetAttribLocation(program.gl_id(), b"position\0".as_ptr() as *const GLchar);
@@ -113,8 +106,8 @@ fn main() {
     gx.label(gx::ObjType::Shader, vs.gl_id(), b"Vertex Shader");
     gx.label(gx::ObjType::Shader, fs.gl_id(), b"Fragment Shader");
     gx.label(gx::ObjType::Program, program.gl_id(), b"Program");
-    gx.label(gx::ObjType::VertexArray, vao, b"VAO");
-    gx.label(gx::ObjType::Buffer, vbo, b"VBO");
+    gx.label(gx::ObjType::VertexArray, vao.gl_id(), b"VAO");
+    gx.label(gx::ObjType::Buffer, vbo.gl_id(), b"VBO");
 
 
     let current_display_mode = window.display_mode().unwrap();
@@ -169,9 +162,9 @@ fn main() {
         unsafe {
             gl::ClearColor(1f32, 0f32, 0f32, 1f32);
             gl::Clear(gl::DEPTH_BUFFER_BIT | gl::COLOR_BUFFER_BIT);
-            gl::BindVertexArray(vao);
+            vao.bind();
             gl::DrawArrays(gl::TRIANGLES, 0, 3);
-            gl::BindVertexArray(0);
+            Vao::unbind();
         }
 
         window.gl_swap_window();
@@ -184,11 +177,6 @@ fn main() {
             }
             lim_last_time = Instant::now();
         }
-    }
-
-    unsafe {
-        gl::DeleteBuffers(1, &vbo);
-        gl::DeleteVertexArrays(1, &vao);
     }
 }
 
