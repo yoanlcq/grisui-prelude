@@ -4,7 +4,6 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 
-use std::ffi::CStr;
 use std::io::Write;
 use std::time::{Instant, Duration};
 use std::thread;
@@ -19,6 +18,8 @@ use gl::types::*;
 
 use log::LevelFilter;
 
+pub mod gx;
+use gx::*;
 
 fn main() {
     //std::env::set_var("RUST_LOG", "info");
@@ -41,7 +42,7 @@ fn main() {
     let gl_attr = video.gl_attr();
     gl_attr.set_context_profile(GLProfile::Core);
     gl_attr.set_context_flags().debug().set();
-    gl_attr.set_context_version(3, 2);
+    //gl_attr.set_context_version(3, 2);
     gl_attr.set_depth_size(24);
     gl_attr.set_stencil_size(8);
     gl_attr.set_multisample_buffers(1);
@@ -62,75 +63,34 @@ fn main() {
     });
     video.gl_set_swap_interval(SwapInterval::LateSwapTearing);
 
+    let gx = unsafe {
+        Gx::new(&video)
+    };
 
-    unsafe {
-        let mut ctxflags: GLint = 0;
-        let mut ctxpmask: GLint = 0;
-        let mut depth_bits: GLint = 0;
-        let mut stencil_bits: GLint = 0;
-        let mut double_buffer: GLboolean = 0;
-        let mut stereo_buffers: GLboolean = 0;
-        gl::GetIntegerv(gl::CONTEXT_FLAGS, &mut ctxflags);
-        gl::GetIntegerv(gl::CONTEXT_PROFILE_MASK, &mut ctxpmask);
-        gl::GetFramebufferAttachmentParameteriv(gl::FRAMEBUFFER, gl::DEPTH, 
-                gl::FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE, &mut depth_bits);
-        gl::GetFramebufferAttachmentParameteriv(gl::FRAMEBUFFER, gl::STENCIL, 
-                gl::FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE, &mut stencil_bits);
-        gl::GetBooleanv(gl::DOUBLEBUFFER, &mut double_buffer);
-        gl::GetBooleanv(gl::STEREO, &mut stereo_buffers);
-
-        let ctxflags = ctxflags as GLuint;
-        let ctxpmask = ctxpmask as GLuint;
-
-        let gl_version    = CStr::from_ptr(gl::GetString(gl::VERSION) as _).to_string_lossy();
-        let gl_renderer   = CStr::from_ptr(gl::GetString(gl::RENDERER) as _).to_string_lossy();
-        let gl_vendor     = CStr::from_ptr(gl::GetString(gl::VENDOR) as _).to_string_lossy();
-        let glsl_version  = CStr::from_ptr(gl::GetString(gl::SHADING_LANGUAGE_VERSION) as _).to_string_lossy();
-        //let gl_extensions = CStr::from_ptr(gl::GetString(gl::EXTENSIONS) as _).to_string_lossy();
-
-
-        // TODO: report to gl crate.
-        #[allow(non_snake_case)]
-        let CONTEXT_FLAG_NO_ERROR_BIT_KHR: GLuint = 0x00000008;
-
-        info!(
-"--- Active OpenGL context settings ---
-    Version             : {}
-    Renderer            : {}
-    Vendor              : {}
-    GLSL version        : {}
-    Profile flags       : {} (bits: 0b{:08b})
-    Context flags       : {}{}{}{} (bits: {:08b})
-    Double buffering    : {}
-    Stereo buffers      : {}
-    Depth buffer bits   : {}
-    Stencil buffer bits : {}
-    Extensions          : {}",
-            gl_version, gl_renderer, gl_vendor, glsl_version,
-            if ctxpmask & gl::CONTEXT_CORE_PROFILE_BIT != 0 {
-                "core"
-            } else if ctxpmask & gl::CONTEXT_COMPATIBILITY_PROFILE_BIT != 0 {
-                "compatibility"
-            } else { "" },
-            ctxpmask,
-if ctxflags & gl::CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT != 0 { "forward_compatible " } else {""},
-if ctxflags & gl::CONTEXT_FLAG_DEBUG_BIT != 0 { "debug " } else {""},
-if ctxflags & gl::CONTEXT_FLAG_ROBUST_ACCESS_BIT != 0 { "robust_access " } else {""},
-if ctxflags &     CONTEXT_FLAG_NO_ERROR_BIT_KHR != 0 { "no_error " } else {""},
-            ctxflags,
-            double_buffer, stereo_buffers, depth_bits, stencil_bits,
-            0 //gl_extensions
-        );
+    let vs = match compile_shader(VS_SRC, gl::VERTEX_SHADER) {
+        Ok(i) => i,
+        Err(s) => {
+            error!("Failed to compile vertex shader:\n{}", s);
+            0
+        },
+    };
+    let fs = match compile_shader(FS_SRC, gl::FRAGMENT_SHADER) {
+        Ok(i) => i,
+        Err(s) => {
+            error!("Failed to compile fragment shader:\n{}", s);
+            0
+        },
+    };
+    if fs==0 || vs==0 {
+        panic!("Quitting.");
     }
-
-    unsafe {
-        gl::Enable(gl::DEPTH_TEST);
-    }
-
-
-    let vs = compile_shader(VS_SRC, gl::VERTEX_SHADER).unwrap();
-    let fs = compile_shader(FS_SRC, gl::FRAGMENT_SHADER).unwrap();
-    let program = link_program(vs, fs).unwrap();
+    let program = match link_program(vs, fs) {
+        Ok(i) => i,
+        Err(s) => {
+            error!("Failed to link GL program:\n{}", s);
+            panic!();
+        },
+    };
 
     let mut vao = 0;
     let mut vbo = 0;
@@ -152,6 +112,12 @@ if ctxflags &     CONTEXT_FLAG_NO_ERROR_BIT_KHR != 0 { "no_error " } else {""},
         gl::VertexAttribPointer(pos_attr as GLuint, 3, gl::FLOAT,
                                 gl::FALSE as GLboolean, 0, ptr::null());
     }
+
+    gx.label(gx::ObjType::Shader, vs, b"Vertex Shader");
+    gx.label(gx::ObjType::Shader, fs, b"Fragment Shader");
+    gx.label(gx::ObjType::Program, program, b"Program");
+    gx.label(gx::ObjType::VertexArray, vao, b"VAO");
+    gx.label(gx::ObjType::Buffer, vbo, b"VBO");
 
 
     let current_display_mode = window.display_mode().unwrap();
@@ -257,8 +223,12 @@ static FS_SRC: &[u8] = b"
 fn compile_shader(src: &[u8], ty: GLenum) -> Result<GLuint, String> {
     unsafe {
         let shader = gl::CreateShader(ty);
+        let mut len = src.len() as GLint;
+        if src[len as usize - 1] as char == '\0' {
+            len -= 1;
+        }
         let glchars = src.as_ptr() as *const GLchar;
-        gl::ShaderSource(shader, 1, &glchars, ptr::null());
+        gl::ShaderSource(shader, 1, &glchars, &len);
         gl::CompileShader(shader);
         let mut status = gl::FALSE as GLint;
         gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut status);
@@ -282,6 +252,8 @@ fn link_program(vs: GLuint, fs: GLuint) -> Result<GLuint, String> {
         gl::AttachShader(program, vs);
         gl::AttachShader(program, fs);
         gl::LinkProgram(program);
+        gl::DetachShader(program, vs);
+        gl::DetachShader(program, fs);
         let mut status = gl::FALSE as GLint;
         gl::GetProgramiv(program, gl::LINK_STATUS, &mut status);
         if status == gl::TRUE as _ {
@@ -296,3 +268,4 @@ fn link_program(vs: GLuint, fs: GLuint) -> Result<GLuint, String> {
         Err(s)
     }
 }
+
