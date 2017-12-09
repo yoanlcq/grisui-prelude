@@ -62,9 +62,9 @@ fn main() {
     });
     video.gl_set_swap_interval(SwapInterval::LateSwapTearing);
 
-    let gx = unsafe {
-        Gx::new(&video)
-    };
+    unsafe {
+        gx::init(&video);
+    }
 
     let vs = match gx::VertexShader::from_source(VS_SRC) {
         Ok(i) => i,
@@ -103,11 +103,11 @@ fn main() {
                                 gl::FALSE as GLboolean, 0, ptr::null());
     }
 
-    gx.label(gx::ObjType::Shader, vs.gl_id(), b"Vertex Shader");
-    gx.label(gx::ObjType::Shader, fs.gl_id(), b"Fragment Shader");
-    gx.label(gx::ObjType::Program, program.gl_id(), b"Program");
-    gx.label(gx::ObjType::VertexArray, vao.gl_id(), b"VAO");
-    gx.label(gx::ObjType::Buffer, vbo.gl_id(), b"VBO");
+    vs.set_label(b"Vertex Shader");
+    fs.set_label(b"Fragment Shader");
+    program.set_label(b"Program");
+    vao.set_label(b"VAO");
+    vbo.set_label(b"VBO");
 
 
     let current_display_mode = window.display_mode().unwrap();
