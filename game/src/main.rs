@@ -18,18 +18,23 @@ pub mod duration_ext;
 use duration_ext::DurationExt;
 
 #[allow(unused_imports)]
-use vek::vec::repr_simd::{Vec4, Rgba,};
+use vek::vec::repr_simd::{Vec4, Rgba};
+use vek::quaternion::repr_simd::Quaternion;
 #[allow(unused_imports)]
 use vek::vec::repr_c::{Vec2, Vec3, Rgb, Extent2};
 #[allow(unused_imports)]
 use vek::mat::repr_simd::column_major::{Mat4,};
 
+pub mod transform;
+pub mod camera;
 pub mod gx;
 pub mod grx;
 pub mod game;
 use game::{Game, GameState};
 
 // TODO:
+// - Have a proper camera;
+// - Test physics simulation steps;
 // - Set panic handler to display a message box;
 // - Display arbitrary text with FreeType;
 // - Play some sounds with OpenAL;
@@ -65,7 +70,7 @@ fn main() {
     while !game.should_quit {
 
         for event in event_pump.poll_iter() {
-            game.handle_sdl2_event(event);
+            game.handle_sdl2_event(&event);
         }
 
         current_time = Instant::now();
@@ -116,7 +121,7 @@ fn main() {
         }
 
         let alpha = accumulator.to_f64_seconds() / dt.to_f64_seconds();
-        let state = GameState::lerp(&game.previous_state, &game.current_state, alpha);
+        let state = GameState::lerp(&game.previous_state, &game.current_state, alpha as f32);
 
         game.render_clear();
         game.render(&state);

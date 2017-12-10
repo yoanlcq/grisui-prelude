@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Yoan Lecoq <yoanlecoq.io@gmail.com>"]
 
 [dependencies]
-vek = { git = "https://github.com/yoanlcq/vek", default-features = false, features = ["serde", "repr_simd", "vec2", "vec3", "rgb", "rgba", "extent2"] }
+vek = { git = "https://github.com/yoanlcq/vek", default-features = false, features = ["serde", "repr_simd", "vec2", "vec3", "rgb", "rgba", "extent2", "geom", "quaternion"] }
 sdl2 = "0.31.0"
 gl = "0.7.0"
 alto = "3.0.0"

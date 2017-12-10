@@ -4,7 +4,7 @@ use std::env;
 
 use sdl2;
 use sdl2::{Sdl, VideoSubsystem};
-use sdl2::event::Event;
+use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::video::{Window, GLContext, GLProfile, SwapInterval};
 
@@ -20,6 +20,8 @@ use env_logger;
 use gx;
 use gx::*;
 
+use camera::PerspectiveCamera;
+
 use grx;
 
 use Mat4;
@@ -28,16 +30,29 @@ use Rgba;
 
 use duration_ext::DurationExt;
 
-#[derive(Debug, Default, Clone, Hash, PartialEq, Eq)]
-pub struct GameState {}
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct GameState {
+    pub camera: PerspectiveCamera,
+}
 
 impl GameState {
+    pub fn new(viewport_size: Extent2<f32>) -> Self {
+        Self {
+            camera: PerspectiveCamera {
+                transform: Default::default(),
+                viewport_size,
+                fov_y: 60_f32.to_radians(),
+                near: 0.001,
+                far: 1000.0,
+            }
+        }
+    }
     pub fn integrate(&mut self, t: Duration, dt: Duration) {
         trace!("GameState: Step t={}, dt={}", t.to_f64_seconds(), dt.to_f64_seconds());
     }
-    pub fn lerp(_a: &Self, _b: &Self, t: f64) -> Self {
+    pub fn lerp(a: &Self, b: &Self, t: f32) -> Self {
         trace!("GameState: Lerp t={}", t);
-        Default::default()
+        Self { camera }
     }
 }
 
@@ -78,6 +93,7 @@ impl Game {
 
         let window = video.window("Grisui - Prelude", 800, 600)
             .position_centered()
+            .resizable()
             .opengl()
             .build()
             .unwrap();
@@ -146,8 +162,13 @@ impl Game {
         // play, pause, stop, rewind, state, gain, position, velocity, direction
         */
 
-        let previous_state = GameState::default();
+        let viewport_size = window.drawable_size();
+        let viewport_size = Extent2::new(viewport_size.0, viewport_size.1);
+        let previous_state = GameState::new(viewport_size);
         let current_state = previous_state.clone();
+
+        self.reshape(viewport_size);
+
         Self {
             should_quit: false, frame: 0,
             previous_state, current_state,
@@ -156,12 +177,32 @@ impl Game {
             alto, alto_dev, alto_context,
         }
     }
-    pub fn handle_sdl2_event(&mut self, event: Event) {
-        match event {
+    pub fn reshape(&mut self, viewport_size: Extent2<u32>) {
+        self.previous_state.camera.viewport_size = viewport_size;
+        self.current_state.camera.viewport_size = viewport_size;
+        unsafe {
+            gl::Viewport(0, 0, viewport_size.w, viewport_size.h);
+        }
+    }
+    pub fn handle_sdl2_event(&mut self, event: &Event) {
+        match *event {
             Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                 self.should_quit = true;
             },
-            _ => {}
+            Event::Window { win_event, .. } => {
+                WindowEvent::Resized(w, h) => {
+                    self.reshape(Extent2::new(w, h));
+                },
+                WindowEvent::SizeChanged(w, h) => {
+                    self.reshape(Extent2::new(w, h));
+                },
+                _ => {
+                    trace!("Unhandled {:?}", win_event);
+                }
+            },
+            _ => {
+                trace!("Unhandled {:?}", event);
+            }
         }
     }
     pub fn render_clear(&mut self) {
@@ -170,10 +211,12 @@ impl Game {
             gl::Clear(gl::DEPTH_BUFFER_BIT | gl::COLOR_BUFFER_BIT);
         }
     }
-    pub fn render(&mut self, _state: &GameState) {
+    pub fn render(&mut self, state: &GameState) {
         self.frame += 1;
         unsafe {
-            self.program.use_program(&Mat4::identity());
+            let viewproj = state.camera.view_proj_matrix();
+            let mvp = viewproj * Mat4::identity();
+            self.program.use_program(&mvp);
             self.vao.bind();
             gl::DrawArrays(gl::TRIANGLES, 0, 3);
         }
