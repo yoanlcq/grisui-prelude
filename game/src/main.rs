@@ -100,7 +100,6 @@ fn main() {
 
         accumulator += frame_time;
 
-        //info!("accumulator={:?}, dt={:?}", accumulator, dt);
         while accumulator >= dt {
             game.previous_state = game.current_state.clone();
             game.current_state.integrate(t, dt);

@@ -29,17 +29,16 @@ pub struct GameState {}
 
 impl GameState {
     pub fn integrate(&mut self, t: Duration, dt: Duration) {
-        info!("GameState: Step t={}, dt={}", t.to_f64_seconds(), dt.to_f64_seconds());
+        trace!("GameState: Step t={}, dt={}", t.to_f64_seconds(), dt.to_f64_seconds());
     }
     pub fn lerp(_a: &Self, _b: &Self, t: f64) -> Self {
-        info!("GameState: Lerp t={}", t);
+        trace!("GameState: Lerp t={}", t);
         Default::default()
     }
 }
 
 pub struct Game {
     pub should_quit: bool,
-    pub tick: u64,
     pub frame: u64,
     pub previous_state: GameState,
     pub current_state: GameState,
@@ -158,7 +157,7 @@ impl Game {
         let previous_state = GameState::default();
         let current_state = previous_state.clone();
         Self {
-            should_quit: false, tick: 0, frame: 0,
+            should_quit: false, frame: 0,
             previous_state, current_state,
             sdl, video, window,
             _gl_context, vao, _vbo: vbo, program,
@@ -189,9 +188,6 @@ impl Game {
     }
     pub fn present(&mut self) {
         self.window.gl_swap_window();
-    }
-    pub fn do_tick(&mut self) {
-        self.tick += 1;
     }
 }
 

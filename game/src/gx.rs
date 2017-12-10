@@ -255,7 +255,7 @@ impl Shader {
             let shader = gl::CreateShader(ty);
             assert_ne!(shader, 0);
             let mut len = src.len() as GLint;
-            if src[len as usize - 1] as char == '\0' {
+            if src[len as usize - 1] == 0 {
                 len -= 1;
             }
             let glchars = src.as_ptr() as *const GLchar;
