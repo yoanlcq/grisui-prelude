@@ -11,6 +11,9 @@ use sdl2::video::{Window, GLContext, GLProfile, SwapInterval};
 use gl;
 use gl::types::*;
 
+use alto;
+use alto::Alto;
+
 use log::LevelFilter;
 
 use env_logger;
@@ -18,15 +21,34 @@ use env_logger;
 use gx;
 use gx::*;
 
+#[derive(Debug, Default, Clone, Hash, PartialEq, Eq)]
+pub struct GameState {}
+
+impl GameState {
+    pub fn integrate(&mut self, t: f64, dt: f64) {
+        info!("Integrating t={}, dt={}", t, dt);
+    }
+    pub fn lerp(_a: &Self, _b: &Self, _t: f64) -> Self {
+        Default::default()
+    }
+}
+
 pub struct Game {
+    pub should_quit: bool,
+    pub tick: u64,
+    pub frame: u64,
+    pub previous_state: GameState,
+    pub current_state: GameState,
     pub sdl: Sdl,
     pub video: VideoSubsystem,
     pub window: Window,
     _gl_context: GLContext,
-    pub should_quit: bool,
     vao: gx::Vao,
     _vbo: gx::Vbo,
     program: gx::Program,
+    pub alto: Alto,
+    pub alto_dev: alto::OutputDevice,
+    pub alto_context: alto::Context,
 }
 
 impl Game {
@@ -105,8 +127,38 @@ impl Game {
                 gl::FALSE as _, 0, ptr::null());
         }
 
+        let alto = Alto::load_default().unwrap();
+        let alto_dev = alto.open(None).unwrap();
+        let attrs = alto::ContextAttrs {
+            frequency: Some(44100),
+            refresh: None,
+            mono_sources: None,
+            stereo_sources: None,
+            soft_hrtf: None,
+            soft_hrtf_id: None,
+            soft_output_limiter: None,
+            max_aux_sends: None,
+        };
+        let alto_context = alto_dev.new_context(Some(attrs)).unwrap();
+        /*
+        let buf = ctx.new_buffer(data, freq).unwrap();
+        let static_src = ctx.new_static_source().unwrap();
+        static_src.set_looping(false);
+        static_src.set_buffer(Arc::new(buf)).unwrap();
+        let stream_src = ctx.new_streaming_source().unwrap();
+        stream_src.queue_buffer(buf).unwrap();
+        stream_src.unqueue_buffer().unwrap();
+        // play, pause, stop, rewind, state, gain, position, velocity, direction
+        */
+
+        let previous_state = GameState::default();
+        let current_state = previous_state.clone();
         Self {
-            sdl, video, window, _gl_context, should_quit: false, vao, _vbo: vbo, program
+            should_quit: false, tick: 0, frame: 0,
+            previous_state, current_state,
+            sdl, video, window,
+            _gl_context, vao, _vbo: vbo, program,
+            alto, alto_dev, alto_context,
         }
     }
     pub fn handle_sdl2_event(&mut self, event: Event) {
@@ -123,7 +175,8 @@ impl Game {
             gl::Clear(gl::DEPTH_BUFFER_BIT | gl::COLOR_BUFFER_BIT);
         }
     }
-    pub fn render(&mut self) {
+    pub fn render(&mut self, _state: &GameState) {
+        self.frame += 1;
         unsafe {
             self.program.use_program();
             self.vao.bind();
@@ -132,6 +185,9 @@ impl Game {
     }
     pub fn present(&mut self) {
         self.window.gl_swap_window();
+    }
+    pub fn do_tick(&mut self) {
+        self.tick += 1;
     }
 }
 
