@@ -1,6 +1,7 @@
 //! General-purpose OpenGL convenience wrappers.
 
 use gl;
+use Mat4;
 
 use std::ffi::CStr;
 use std::ptr;
@@ -335,6 +336,30 @@ impl Program {
         match i {
             -1 => None,
             i @ _ => Some(i),
+        }
+    }
+    pub fn uniform_location(&self, name: &[u8]) -> Option<GLint> {
+        assert_eq!(name[name.len()-1], 0);
+        let i = unsafe {
+            gl::GetUniformLocation(self.gl_id(), name.as_ptr() as *const GLchar)
+        };
+        match i {
+            -1 => None,
+            i @ _ => Some(i),
+        }
+    }
+    /*
+    // WISH: Refactor this into a program Builer (do before linking)
+    pub fn bind_attrib_location(&self, loc: GLuint, name: &[u8]) {
+        assert_eq!(name[name.len()-1], 0);
+        unsafe {
+            gl::BindAttribLocation(self.gl_id(), loc, name.as_ptr() as *const GLchar);
+        }
+    }
+    */
+    pub fn set_uniform_mat4(&self, loc: GLint, m: &Mat4<f32>) {
+        unsafe {
+            gl::UniformMatrix4fv(loc, 1, gl::FALSE as _, &m.cols[0][0]);
         }
     }
 }

@@ -1,6 +1,5 @@
 use std::io::Write;
 use std::time::Duration;
-use std::ptr;
 use std::env;
 
 use sdl2;
@@ -10,7 +9,6 @@ use sdl2::keyboard::Keycode;
 use sdl2::video::{Window, GLContext, GLProfile, SwapInterval};
 
 use gl;
-use gl::types::*;
 
 use alto;
 use alto::Alto;
@@ -21,6 +19,12 @@ use env_logger;
 
 use gx;
 use gx::*;
+
+use grx;
+
+use Mat4;
+use Vec3;
+use Rgba;
 
 use duration_ext::DurationExt;
 
@@ -48,7 +52,7 @@ pub struct Game {
     _gl_context: GLContext,
     vao: gx::Vao,
     _vbo: gx::Vbo,
-    program: gx::Program,
+    program: grx::SimpleColorProgram,
     pub alto: Alto,
     pub alto_dev: alto::OutputDevice,
     pub alto_context: alto::Context,
@@ -88,46 +92,34 @@ impl Game {
             gx::init(&video);
         }
 
-        let vs = match gx::VertexShader::from_source(VS_SRC) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to compile vertex shader:\n{}", s);
-                panic!()
-            },
-        };
-        vs.set_label(b"Vertex Shader");
-        let fs = match gx::FragmentShader::from_source(FS_SRC) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to compile fragment shader:\n{}", s);
-                panic!()
-            },
-        };
-        fs.set_label(b"Fragment Shader");
-        let program = match gx::Program::from_vert_frag(&vs, &fs) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to link GL program:\n{}", s);
-                panic!()
-            },
-        };
-        program.set_label(b"Program");
+        let program = grx::SimpleColorProgram::new();
 
         let vao = gx::Vao::new();
         let vbo = gx::Vbo::new();
         unsafe {
             vao.bind();
             vbo.bind();
-            vao.set_label(b"VAO");
-            vbo.set_label(b"VBO");
-            vbo.set_data(&VERTEX_DATA, gx::UpdateHint::Never);
-            program.use_program();
+            vao.set_label(b"Simple Triangle VAO");
+            vbo.set_label(b"Simple Triangle VBO");
+            let data = [
+                grx::SimpleColorVertex { position: Vec3::new( 0.0,  0.5, 0.0), color: Rgba::red() },
+                grx::SimpleColorVertex { position: Vec3::new( 0.5, -0.5, 0.0), color: Rgba::yellow() },
+                grx::SimpleColorVertex { position: Vec3::new(-0.5, -0.5, 0.0), color: Rgba::green() },
+            ];
+            assert_eq!(::std::mem::size_of::<Vec3<f32>>(), 3*4);
+            assert_eq!(::std::mem::size_of::<Rgba<f32>>(), 4*4);
+            vbo.set_data(&data, gx::UpdateHint::Never);
 
-            let pos_attr = program.attrib_location(b"position\0").unwrap();
-            gl::EnableVertexAttribArray(pos_attr as _);
+            gl::EnableVertexAttribArray(program.a_position());
+            gl::EnableVertexAttribArray(program.a_color());
             gl::VertexAttribPointer(
-                pos_attr as _, 3, gl::FLOAT,
-                gl::FALSE as _, 0, ptr::null());
+                program.a_position(), 3, gl::FLOAT,
+                gl::FALSE as _, 7*4, 0 as *const _
+            );
+            gl::VertexAttribPointer(
+                program.a_color(), 4, gl::FLOAT,
+                gl::FALSE as _, 7*4, (3*4) as *const _
+            );
         }
 
         let alto = Alto::load_default().unwrap();
@@ -181,7 +173,7 @@ impl Game {
     pub fn render(&mut self, _state: &GameState) {
         self.frame += 1;
         unsafe {
-            self.program.use_program();
+            self.program.use_program(&Mat4::identity());
             self.vao.bind();
             gl::DrawArrays(gl::TRIANGLES, 0, 3);
         }
@@ -203,33 +195,10 @@ fn setup_log() {
         let s = format!("{}", record.level());
         let s = s.chars().next().unwrap();
         writeln!(buf, "[{}] {}", s, record.args())
-    }).filter(None, LevelFilter::Trace);
+    }).filter(None, LevelFilter::Debug);
 
     if let Ok(rust_log) = env::var("RUST_LOG") {
         builder.parse(&rust_log);
     }
     builder.init();
 }
-
-static VERTEX_DATA: [GLfloat; 9] = [
-    0.0, 0.5, 0.0,
-    0.5, -0.5, 0.0,
-    -0.5, -0.5, 0.0
-];
-
-static VS_SRC: &[u8] = b"
-    #version 330
-    layout(location=0) in vec3 position;
-    void main() {
-        gl_Position = vec4(position, 1.0);
-    }
-\0";
-
-static FS_SRC: &[u8] = b"
-    #version 330
-    layout(location=0) out vec4 out_color;
-    void main() {
-        out_color = vec4(0.0, 0.0, 1.0, 1.0);
-    }
-\0";
-

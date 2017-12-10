@@ -17,12 +17,20 @@ use std::thread;
 pub mod duration_ext;
 use duration_ext::DurationExt;
 
-pub mod gx;
+#[allow(unused_imports)]
+use vek::vec::repr_simd::{Vec4, Rgba,};
+#[allow(unused_imports)]
+use vek::vec::repr_c::{Vec2, Vec3, Rgb, Extent2};
+#[allow(unused_imports)]
+use vek::mat::repr_simd::column_major::{Mat4,};
 
+pub mod gx;
+pub mod grx;
 pub mod game;
 use game::{Game, GameState};
 
 // TODO:
+// - Set panic handler to display a message box;
 // - Display arbitrary text with FreeType;
 // - Play some sounds with OpenAL;
 // - Have a proper 3D scene with a movable camera;
@@ -66,7 +74,7 @@ fn main() {
         frame_accum += 1;
         if current_time.duration_since(last_frame_time) > Duration::from_millis(fps_counter_interval as _) {
             let fps = ((frame_accum as f64) * 1000f64 / fps_counter_interval).round() as u32;
-            info!(concat!("{} frames under {} milliseconds = ",
+            trace!(concat!("{} frames under {} milliseconds = ",
                 "{} milliseconds/frame = ",
                 "{} FPS"), 
                 frame_accum,
