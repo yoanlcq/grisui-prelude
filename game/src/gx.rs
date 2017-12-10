@@ -1,5 +1,6 @@
-extern crate gl;
-extern crate sdl2;
+//! General-purpose OpenGL convenience wrappers.
+
+use gl;
 
 use std::ffi::CStr;
 use std::ptr;
@@ -66,7 +67,7 @@ pub unsafe fn init(video: &VideoSubsystem) {
     let gl_renderer   = CStr::from_ptr(gl::GetString(gl::RENDERER) as _).to_string_lossy();
     let gl_vendor     = CStr::from_ptr(gl::GetString(gl::VENDOR) as _).to_string_lossy();
     let glsl_version  = CStr::from_ptr(gl::GetString(gl::SHADING_LANGUAGE_VERSION) as _).to_string_lossy();
-    let gl_extensions = CStr::from_ptr(gl::GetString(gl::EXTENSIONS) as _).to_string_lossy();
+    let _gl_extensions = CStr::from_ptr(gl::GetString(gl::EXTENSIONS) as _).to_string_lossy();
 
     let gl_major = gl_version.chars().nth(0).unwrap() as u32 - '0' as u32;
     let gl_minor = gl_version.chars().nth(2).unwrap() as u32 - '0' as u32;
@@ -86,8 +87,7 @@ Context flags       : {}{}{}{} (bits: {:08b})
 Double buffering    : {}
 Stereo buffers      : {}
 Depth buffer bits   : {}
-Stencil buffer bits : {}
-Extensions          : {}",
+Stencil buffer bits : {}",
         gl_version, gl_major, gl_minor, gl_renderer, gl_vendor, glsl_version,
         if ctxpmask & gl::CONTEXT_CORE_PROFILE_BIT != 0 {
             "core"
@@ -101,7 +101,6 @@ Extensions          : {}",
         if ctxflags &     CONTEXT_FLAG_NO_ERROR_BIT_KHR != 0 { "no_error " } else {""},
         ctxflags,
         double_buffer, stereo_buffers, depth_bits, stencil_bits,
-        gl_extensions
     );
 
     let can_debug = gl_major > 4 
@@ -118,6 +117,12 @@ Extensions          : {}",
             0, ptr::null_mut(), gl::TRUE
         );
         SET_LABEL = set_label_actual as _;
+        let msg = b"OpenGL debugging is set up.\0";
+        gl::DebugMessageInsert(
+            gl::DEBUG_SOURCE_APPLICATION, gl::DEBUG_TYPE_OTHER,
+            0x00000000, gl::DEBUG_SEVERITY_NOTIFICATION,
+            (msg.len()-1) as _, msg.as_ptr() as _
+        );
     }
 
     gl::Enable(gl::DEPTH_TEST);
@@ -136,10 +141,12 @@ extern "system" fn gl_dbg_msg_callback(
         gl::DEBUG_SOURCE_OTHER => "Other",
         _ => "",
     };
+    use log::Level;
+    let mut level = Level::Debug;
     let t = match ty {
-        gl::DEBUG_TYPE_ERROR => "Error",
-        gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => "Deprecated behaviour",
-        gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => "Undefined behaviour",
+        gl::DEBUG_TYPE_ERROR => { level = Level::Error; "Error" },
+        gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => { level = Level::Warn; "Deprecated behaviour" },
+        gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => { level = Level::Warn; "Undefined behaviour" },
         gl::DEBUG_TYPE_PERFORMANCE => "Performance",
         gl::DEBUG_TYPE_PORTABILITY => "Portability",
         gl::DEBUG_TYPE_MARKER => "Command stream annotation",
@@ -159,8 +166,9 @@ extern "system" fn gl_dbg_msg_callback(
         slice::from_raw_parts(message as *const u8, length as _)
     };
     let message = str::from_utf8(message).unwrap();
-    debug!(
-        "OpenGL debug message ({}, {}, {}, {:X}) :\n{}",
+    log!(
+        level,
+        "OpenGL debug message ({}, {}, {}, 0x{:X}) :\n{}",
         sev, t, src, id, message
     );
 }
@@ -317,6 +325,16 @@ impl Program {
             buf.set_len((len-1) as _);
             gl::GetProgramInfoLog(self.gl_id(), len, ptr::null_mut(), buf.as_mut_ptr() as *mut GLchar);
             String::from_utf8(buf).unwrap_or("<UTF-8 error>".to_owned())
+        }
+    }
+    pub fn attrib_location(&self, name: &[u8]) -> Option<GLint> {
+        assert_eq!(name[name.len()-1], 0);
+        let i = unsafe {
+            gl::GetAttribLocation(self.gl_id(), name.as_ptr() as *const GLchar)
+        };
+        match i {
+            -1 => None,
+            i @ _ => Some(i),
         }
     }
 }
