@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::time::Duration;
 use std::ptr;
 use std::env;
 
@@ -21,14 +22,17 @@ use env_logger;
 use gx;
 use gx::*;
 
+use duration_ext::DurationExt;
+
 #[derive(Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct GameState {}
 
 impl GameState {
-    pub fn integrate(&mut self, t: f64, dt: f64) {
-        info!("Integrating t={}, dt={}", t, dt);
+    pub fn integrate(&mut self, t: Duration, dt: Duration) {
+        info!("GameState: Step t={}, dt={}", t.to_f64_seconds(), dt.to_f64_seconds());
     }
-    pub fn lerp(_a: &Self, _b: &Self, _t: f64) -> Self {
+    pub fn lerp(_a: &Self, _b: &Self, t: f64) -> Self {
+        info!("GameState: Lerp t={}", t);
         Default::default()
     }
 }
