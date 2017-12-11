@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate pretty_assertions;
 extern crate vek;
 extern crate sdl2;
 extern crate gl;
