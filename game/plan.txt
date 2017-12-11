@@ -1,0 +1,76 @@
+Triage:
+- Undo stack;
+- Scene management;
+- Camera management;
+- IDs;
+- Animation management
+  - "Talk" animation;
+  - A group can have several animations;
+- Disks, Rectangles (special rendering, special collision test);
+- Jump to scene (open scenes library)
+- Groups/paths
+- Instantiate group/paths (open groups/paths library)
+- Tag group/path
+- See object metadata on hover (ID, tags).
+- Set onclick hooks for group instance:
+  - (All of these are optional and tried in order.)
+  - animate_self(anim);
+  - pop_dialogue(dialogue);
+  - jump_to_scene(scene); // Waits for click if dialog, or end of animation if animation but no dialogue.
+  - disappear (get picked up);
+  - display inventory;
+  - set savedata property;
+- How are properties handled ?
+  - ID -> name -> type -> value;
+- Handle multiple saves (and world's initial state).
+- Ungroup ???
+- Set path/group resolution (amount of OpenGL vertices);
+- Gradient fill ???
+- Cool heat deform shader ?
+- Several viewports ?
+
+Editor
+- Enter/Leave (suspend game);
+- Display metadata (GL version, FPS, physics steps, etc).
+Audio
+- Pause/resume
+Edit Bézier
+- Always highlight the node that is closest to the mouse
+- Transform mode (atoms or groups)
+  - Move Anchor
+  - Move, Rotate Scale
+- Add nodes mode
+  - TODO
+- Insert nodes mode
+  - TODO
+- Remove nodes mode
+  - TODO
+- Move nodes mode
+  - For all node sets that have the exact same position (i.e are snapped),
+    clicking warps the node set to the cursor position, and holding left click
+    keeps dragging it.
+    (Node sets may consist of only one node).
+  - Cancel last drag
+  - Snap to closest node in scene (hold S)
+  - Unsnap (i.e only move the z-topmost node).
+- Move tangents mode
+  - (Same as "Move nodes mode");
+  - Break/Repair alignment of tangent pair;
+  - Keep tangent length of pair equalized;
+- Paths
+  - Fill (color + alpha)
+  - Stroke (color + alpha)
+- Set z of group instance;
+- Set z of path within group (not instance);
+- Duplicate path (not instance);
+- Duplicate group (not instance);
+- Colors
+  - Add new;
+  - See metadata on hover (ID, tags);
+  - Edit color;
+View
+  - Perspective/Orthographic
+  - Pan (Hold Space and drag mouse)
+  - Zoom (Hold Ctrl+Space and drag mouse)
+  - Toggle Mirror mode (M)
+  - Set as initial in-game scene view
