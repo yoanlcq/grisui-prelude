@@ -14,10 +14,7 @@ static VS_SRC: &[u8] = b"
     in vec4 a_color;
     out vec4 v_color;
     void main() {
-        vec4 pos = vec4(a_position, 1.0);
-        float e = 0.00001;
-        pos = (u_mvp * vec4(e,e,e,e)) + pos;
-        gl_Position = pos;
+        gl_Position = u_mvp * vec4(a_position, 1.0);
         v_color = a_color;
     }
 \0";

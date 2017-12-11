@@ -361,7 +361,8 @@ impl Program {
     */
     pub fn set_uniform_mat4(&self, loc: GLint, m: &Mat4<f32>) {
         unsafe {
-            gl::UniformMatrix4fv(loc, 1, gl::FALSE as _, &m.cols[0][0]);
+            let transpose = m.gl_should_transpose() as GLboolean;
+            gl::UniformMatrix4fv(loc, 1, transpose, m.cols[0].as_ptr());
         }
     }
 }

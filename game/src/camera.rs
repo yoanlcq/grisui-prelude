@@ -3,6 +3,7 @@ use Mat4;
 use Vec3;
 use Extent2;
 use Lerp;
+use Clamp;
 use vek::geom::FrustumPlanes;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -38,16 +39,17 @@ impl PerspectiveCamera {
         self.proj_matrix() * self.view_matrix()
     }
     pub fn lerp(a: &Self, b: &Self, t: f32) -> Self {
+        let t = t.clamped01();
         Self {
             transform: Transform::lerp(&a.transform, &b.transform, t),
-            viewport_size: Extent2::lerp(
+            viewport_size: Lerp::lerp_unclamped(
                 a.viewport_size.convert(|x| x as f32),
                 b.viewport_size.convert(|x| x as f32),
                 t
             ).convert(|x| x.round() as u32),
-            fov_y: f32::lerp(a.fov_y, b.fov_y, t),
-            near: f32::lerp(a.near, b.near, t),
-            far: f32::lerp(a.far, b.far, t),
+            fov_y: Lerp::lerp_unclamped(a.fov_y, b.fov_y, t),
+            near: Lerp::lerp_unclamped(a.near, b.near, t),
+            far: Lerp::lerp_unclamped(a.far, b.far, t),
         }
     }
 }

@@ -22,6 +22,7 @@ use gx;
 use gx::*;
 
 use camera::PerspectiveCamera;
+use transform::Transform;
 
 use grx;
 
@@ -35,6 +36,7 @@ use duration_ext::DurationExt;
 #[derive(Debug, Clone, PartialEq)]
 pub struct GameState {
     pub camera: PerspectiveCamera,
+    pub triangle: Transform,
 }
 
 impl GameState {
@@ -44,18 +46,25 @@ impl GameState {
                 transform: Default::default(),
                 viewport_size,
                 fov_y: 60_f32.to_radians(),
-                near: 0.001,
+                near: 0.01,
                 far: 1000.0,
-            }
+            },
+            triangle: Default::default(),
         }
     }
-    pub fn integrate(&mut self, t: Duration, dt: Duration) {
-        trace!("GameState: Step t={}, dt={}", t.to_f64_seconds(), dt.to_f64_seconds());
+    pub fn integrate(&mut self, t_dur: Duration, dt_dur: Duration) {
+        let t = t_dur.to_f64_seconds();
+        let dt = dt_dur.to_f64_seconds();
+        trace!("GameState: Step t={}, dt={}", t, dt);
+        self.triangle.position.x += 0.1_f32 * (dt as f32);
+        self.triangle.rotation.rotate_z(0.001_f32);
+        self.triangle.scale -= 0.1_f32 * (dt as f32);
     }
     pub fn lerp(a: &Self, b: &Self, t: f32) -> Self {
         trace!("GameState: Lerp t={}", t);
         let camera = PerspectiveCamera::lerp(&a.camera, &b.camera, t);
-        Self { camera }
+        let triangle = Transform::lerp(&a.triangle, &b.triangle, t);
+        Self { camera, triangle }
     }
 }
 
@@ -120,13 +129,14 @@ impl Game {
             vbo.bind();
             vao.set_label(b"Simple Triangle VAO");
             vbo.set_label(b"Simple Triangle VBO");
+            let z = -0.5_f32;
             let data = [
-                grx::SimpleColorVertex { position: Vec3::new( 0.0,  0.5, 0.0), color: Rgba::red() },
-                grx::SimpleColorVertex { position: Vec3::new( 0.5, -0.5, 0.0), color: Rgba::yellow() },
-                grx::SimpleColorVertex { position: Vec3::new(-0.5, -0.5, 0.0), color: Rgba::green() },
+                grx::SimpleColorVertex { position: Vec3::new( 0.0,  0.5, z), color: Rgba::red() },
+                grx::SimpleColorVertex { position: Vec3::new( 0.5, -0.5, z), color: Rgba::yellow() },
+                grx::SimpleColorVertex { position: Vec3::new(-0.5, -0.5, z), color: Rgba::green() },
             ];
-            assert_eq!(::std::mem::size_of::<Vec3<f32>>(), 3*4);
-            assert_eq!(::std::mem::size_of::<Rgba<f32>>(), 4*4);
+            assert_eq_size!(Vec3<f32>, [f32; 3]);
+            assert_eq_size!(Rgba<f32>, [f32; 4]);
             vbo.set_data(&data, gx::UpdateHint::Never);
 
             gl::EnableVertexAttribArray(program.a_position());
@@ -214,13 +224,25 @@ impl Game {
             gl::Clear(gl::DEPTH_BUFFER_BIT | gl::COLOR_BUFFER_BIT);
         }
     }
+    // FIXME: What failed:
+    // - Mat4::look_at();
+    // - Mat4::perspective();
+    // - Mat4::from::<Quaternion>();
+    // - Perhaps Quaternion::rotate() ???????????
     pub fn render(&mut self, state: &GameState) {
         self.frame += 1;
+        //let view = state.camera.view_matrix().transposed();
+        //let proj = state.camera.proj_matrix().transposed();
+        //let mvp = proj.transposed();
+        //let mvp = Mat4::from(state.triangle.rotation);
+        //let mvp = Mat4::rotation_z(state.triangle.position.x * 4_f32);
+        let mvp = Mat4::scaling_3d(state.triangle.scale)
+            .rotated_z(state.triangle.position.x * 16_f32)
+            .translated_3d(state.triangle.position);
+        debug!("MVP: {}", mvp);
+        self.program.use_program(&mvp);
+        self.vao.bind();
         unsafe {
-            let viewproj = state.camera.view_proj_matrix();
-            let mvp = viewproj * Mat4::identity();
-            self.program.use_program(&mvp);
-            self.vao.bind();
             gl::DrawArrays(gl::TRIANGLES, 0, 3);
         }
     }
