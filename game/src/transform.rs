@@ -1,5 +1,7 @@
 use Vec3;
+use Vec4;
 use Quaternion;
+use Lerp;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Transform {
@@ -26,9 +28,9 @@ impl Transform {
     }
     pub fn lerp(a: &Self, b: &Self, t: f32) -> Self {
         Self {
-            position: lerp(a.position, b.position, t),
-            rotation: slerp(a.rotation, b.rotation, t),
-            scale: lerp(a.scale, b.scale, t),
+            position: Vec3::lerp(a.position, b.position, t),
+            rotation: Quaternion::slerp(a.rotation, b.rotation, t),
+            scale: Vec3::lerp(a.scale, b.scale, t),
         }
     }
 }

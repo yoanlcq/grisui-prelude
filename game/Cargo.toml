@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Yoan Lecoq <yoanlecoq.io@gmail.com>"]
 
 [dependencies]
+static_assertions = "0.2.4"
 pretty_assertions = "0.4.1"
 vek = { version = "0.6", default-features = false, features = ["serde", "repr_simd", "vec2", "vec3", "rgb", "rgba", "extent2", "geom", "quaternion", "bezier"] }
 sdl2 = "0.31.0"

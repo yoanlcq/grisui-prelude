@@ -1,5 +1,7 @@
 #[macro_use]
 extern crate pretty_assertions;
+#[macro_use]
+extern crate static_assertions;
 extern crate vek;
 extern crate sdl2;
 extern crate gl;
@@ -26,6 +28,13 @@ use vek::quaternion::repr_simd::Quaternion;
 use vek::vec::repr_c::{Vec2, Vec3, Rgb, Extent2};
 #[allow(unused_imports)]
 use vek::mat::repr_simd::column_major::{Mat4,};
+
+use vek::ops::*;
+
+assert_eq_size!(mat4_f32_size; Mat4<f32>, [f32; 16]);
+assert_eq_size!(vec4_f32_size; Vec4<f32>, [f32; 4]);
+assert_eq_size!(rgba_f32_size; Rgba<f32>, [f32; 4]);
+assert_eq_size!(rgba_u8_size ; Rgba<u8>, [u8; 4]);
 
 pub mod transform;
 pub mod camera;

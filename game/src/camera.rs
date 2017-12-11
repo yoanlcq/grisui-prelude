@@ -2,6 +2,7 @@ use transform::Transform;
 use Mat4;
 use Vec3;
 use Extent2;
+use Lerp;
 use vek::geom::FrustumPlanes;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -39,10 +40,14 @@ impl PerspectiveCamera {
     pub fn lerp(a: &Self, b: &Self, t: f32) -> Self {
         Self {
             transform: Transform::lerp(&a.transform, &b.transform, t),
-            viewport_size: lerp(a.viewport_size, b.viewport_size, t),
-            fov_y: lerp(a.fov_y, b.fov_y, t),
-            near: lerp(a.near, b.near, t),
-            far: lerp(a.far, b.far, t),
+            viewport_size: Extent2::lerp(
+                a.viewport_size.convert(|x| x as f32),
+                b.viewport_size.convert(|x| x as f32),
+                t
+            ).convert(|x| x.round() as u32),
+            fov_y: f32::lerp(a.fov_y, b.fov_y, t),
+            near: f32::lerp(a.near, b.near, t),
+            far: f32::lerp(a.far, b.far, t),
         }
     }
 }

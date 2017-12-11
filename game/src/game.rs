@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::time::Duration;
 use std::env;
+use std::ptr;
 
 use sdl2;
 use sdl2::{Sdl, VideoSubsystem};
@@ -27,16 +28,17 @@ use grx;
 use Mat4;
 use Vec3;
 use Rgba;
+use Extent2;
 
 use duration_ext::DurationExt;
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GameState {
     pub camera: PerspectiveCamera,
 }
 
 impl GameState {
-    pub fn new(viewport_size: Extent2<f32>) -> Self {
+    pub fn new(viewport_size: Extent2<u32>) -> Self {
         Self {
             camera: PerspectiveCamera {
                 transform: Default::default(),
@@ -52,6 +54,7 @@ impl GameState {
     }
     pub fn lerp(a: &Self, b: &Self, t: f32) -> Self {
         trace!("GameState: Lerp t={}", t);
+        let camera = PerspectiveCamera::lerp(&a.camera, &b.camera, t);
         Self { camera }
     }
 }
@@ -130,11 +133,11 @@ impl Game {
             gl::EnableVertexAttribArray(program.a_color());
             gl::VertexAttribPointer(
                 program.a_position(), 3, gl::FLOAT,
-                gl::FALSE as _, 7*4, 0 as *const _
+                gl::FALSE as _, 7*4, ptr::null()
             );
             gl::VertexAttribPointer(
                 program.a_color(), 4, gl::FLOAT,
-                gl::FALSE as _, 7*4, (3*4) as *const _
+                gl::FALSE as _, 7*4, ptr::null().offset(3*4)
             );
         }
 
@@ -167,21 +170,21 @@ impl Game {
         let previous_state = GameState::new(viewport_size);
         let current_state = previous_state.clone();
 
-        self.reshape(viewport_size);
-
-        Self {
+        let mut slf = Self {
             should_quit: false, frame: 0,
             previous_state, current_state,
             sdl, video, window,
             _gl_context, vao, _vbo: vbo, program,
             alto, alto_dev, alto_context,
-        }
+        };
+        slf.reshape(viewport_size);
+        slf
     }
     pub fn reshape(&mut self, viewport_size: Extent2<u32>) {
         self.previous_state.camera.viewport_size = viewport_size;
         self.current_state.camera.viewport_size = viewport_size;
         unsafe {
-            gl::Viewport(0, 0, viewport_size.w, viewport_size.h);
+            gl::Viewport(0, 0, viewport_size.w as _, viewport_size.h as _);
         }
     }
     pub fn handle_sdl2_event(&mut self, event: &Event) {
@@ -189,20 +192,20 @@ impl Game {
             Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                 self.should_quit = true;
             },
-            Event::Window { win_event, .. } => {
+            Event::Window { win_event, .. } => match win_event {
                 WindowEvent::Resized(w, h) => {
-                    self.reshape(Extent2::new(w, h));
+                    self.reshape(Extent2::new(w as _, h as _));
                 },
                 WindowEvent::SizeChanged(w, h) => {
-                    self.reshape(Extent2::new(w, h));
+                    self.reshape(Extent2::new(w as _, h as _));
                 },
                 _ => {
                     trace!("Unhandled {:?}", win_event);
-                }
+                },
             },
             _ => {
                 trace!("Unhandled {:?}", event);
-            }
+            },
         }
     }
     pub fn render_clear(&mut self) {
