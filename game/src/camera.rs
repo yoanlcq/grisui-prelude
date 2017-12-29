@@ -1,14 +1,15 @@
-use transform::Transform;
 use Mat4;
 use Vec3;
+use SimdVec3;
 use Extent2;
 use Lerp;
 use Clamp;
-use vek::geom::FrustumPlanes;
+use Transform;
+use FrustumPlanes;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PerspectiveCamera {
-    pub transform: Transform,
+    pub transform: Transform<f32, f32, f32>,
     pub viewport_size: Extent2<u32>,
     pub fov_y: f32,
     pub near: f32,
@@ -17,8 +18,18 @@ pub struct PerspectiveCamera {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct OrthographicCamera {
-    pub transform: Transform,
+    pub transform: Transform<f32, f32, f32>,
     pub frustum: FrustumPlanes<f32>,
+}
+
+pub trait TransformExt {
+    fn forward_lh(&self) -> Vec3<f32>;
+}
+
+impl TransformExt for Transform<f32, f32, f32> {
+    fn forward_lh(&self) -> Vec3<f32> {
+        self.orientation * Vec3::<f32>::forward_lh()
+    }
 }
 
 impl PerspectiveCamera {
@@ -28,12 +39,12 @@ impl PerspectiveCamera {
     pub fn view_matrix(&self) -> Mat4<f32> {
         Mat4::look_at(
             self.transform.position, 
-            self.transform.position + self.transform.forward(),
-            Vec3::unit_y()
+            self.transform.position + self.transform.forward_lh(),
+            SimdVec3::unit_y()
         )
     }
     pub fn proj_matrix(&self) -> Mat4<f32> {
-        Mat4::perspective(self.fov_y, self.aspect_ratio(), self.near, self.far)
+        Mat4::perspective_lh_no(self.fov_y, self.aspect_ratio(), self.near, self.far)
     }
     pub fn view_proj_matrix(&self) -> Mat4<f32> {
         self.proj_matrix() * self.view_matrix()
@@ -41,12 +52,12 @@ impl PerspectiveCamera {
     pub fn lerp(a: &Self, b: &Self, t: f32) -> Self {
         let t = t.clamped01();
         Self {
-            transform: Transform::lerp(&a.transform, &b.transform, t),
+            transform: Lerp::lerp(&a.transform, &b.transform, t),
             viewport_size: Lerp::lerp_unclamped(
-                a.viewport_size.convert(|x| x as f32),
-                b.viewport_size.convert(|x| x as f32),
+                a.viewport_size.map(|x| x as f32),
+                b.viewport_size.map(|x| x as f32),
                 t
-            ).convert(|x| x.round() as u32),
+            ).map(|x| x.round() as u32),
             fov_y: Lerp::lerp_unclamped(a.fov_y, b.fov_y, t),
             near: Lerp::lerp_unclamped(a.near, b.near, t),
             far: Lerp::lerp_unclamped(a.far, b.far, t),
@@ -58,12 +69,12 @@ impl OrthographicCamera {
     pub fn view_matrix(&self) -> Mat4<f32> {
         Mat4::look_at(
             self.transform.position, 
-            self.transform.position + self.transform.forward(),
-            Vec3::unit_y()
+            self.transform.position + self.transform.forward_lh(),
+            SimdVec3::unit_y()
         )
     }
     pub fn proj_matrix(&self) -> Mat4<f32> {
-        Mat4::orthographic(self.frustum)
+        Mat4::orthographic_lh_no(self.frustum)
     }
     pub fn view_proj_matrix(&self) -> Mat4<f32> {
         self.proj_matrix() * self.view_matrix()

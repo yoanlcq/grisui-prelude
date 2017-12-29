@@ -2,6 +2,7 @@ use std::io::Write;
 use std::time::Duration;
 use std::env;
 use std::ptr;
+use std::f32::consts::PI;
 
 use sdl2;
 use sdl2::{Sdl, VideoSubsystem};
@@ -22,13 +23,14 @@ use gx;
 use gx::*;
 
 use camera::PerspectiveCamera;
-use transform::Transform;
+use Transform;
 
 use grx;
 
 use Mat4;
 use Vec3;
 use Rgba;
+use Lerp;
 use Extent2;
 
 use duration_ext::DurationExt;
@@ -36,7 +38,7 @@ use duration_ext::DurationExt;
 #[derive(Debug, Clone, PartialEq)]
 pub struct GameState {
     pub camera: PerspectiveCamera,
-    pub triangle: Transform,
+    pub triangle: Transform<f32, f32, f32>,
 }
 
 impl GameState {
@@ -56,14 +58,17 @@ impl GameState {
         let t = t_dur.to_f64_seconds();
         let dt = dt_dur.to_f64_seconds();
         trace!("GameState: Step t={}, dt={}", t, dt);
-        self.triangle.position.x += 0.1_f32 * (dt as f32);
-        self.triangle.rotation.rotate_z(0.001_f32);
-        self.triangle.scale -= 0.1_f32 * (dt as f32);
+        {
+            let dt = dt as f32;
+            self.triangle.position.x += 0.1 * dt;
+            self.triangle.orientation.rotate_z(0.1*2.0*PI * dt);
+            self.triangle.scale -= 0.1 * dt;
+        }
     }
     pub fn lerp(a: &Self, b: &Self, t: f32) -> Self {
         trace!("GameState: Lerp t={}", t);
         let camera = PerspectiveCamera::lerp(&a.camera, &b.camera, t);
-        let triangle = Transform::lerp(&a.triangle, &b.triangle, t);
+        let triangle = Lerp::lerp(&a.triangle, &b.triangle, t);
         Self { camera, triangle }
     }
 }
@@ -224,22 +229,10 @@ impl Game {
             gl::Clear(gl::DEPTH_BUFFER_BIT | gl::COLOR_BUFFER_BIT);
         }
     }
-    // FIXME: What failed:
-    // - Mat4::look_at();
-    // - Mat4::perspective();
-    // - Mat4::from::<Quaternion>();
-    // - Perhaps Quaternion::rotate() ???????????
     pub fn render(&mut self, state: &GameState) {
         self.frame += 1;
-        //let view = state.camera.view_matrix().transposed();
-        //let proj = state.camera.proj_matrix().transposed();
-        //let mvp = proj.transposed();
-        //let mvp = Mat4::from(state.triangle.rotation);
-        //let mvp = Mat4::rotation_z(state.triangle.position.x * 4_f32);
-        let mvp = Mat4::scaling_3d(state.triangle.scale)
-            .rotated_z(state.triangle.position.x * 16_f32)
-            .translated_3d(state.triangle.position);
-        debug!("MVP: {}", mvp);
+        let mvp = Mat4::from(state.triangle);
+        // debug!("MVP: {}", mvp);
         self.program.use_program(&mvp);
         self.vao.bind();
         unsafe {

@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 #[macro_use]
 extern crate pretty_assertions;
 #[macro_use]
@@ -21,22 +23,22 @@ use std::thread;
 pub mod duration_ext;
 use duration_ext::DurationExt;
 
-#[allow(unused_imports)]
 use vek::vec::repr_simd::{Vec4, Rgba};
 use vek::quaternion::repr_simd::Quaternion;
-#[allow(unused_imports)]
 use vek::vec::repr_c::{Vec2, Vec3, Rgb, Extent2};
-#[allow(unused_imports)]
+use vek::vec::repr_simd::{Vec3 as SimdVec3};
 use vek::mat::repr_simd::column_major::{Mat4,};
-
+use vek::mat::repr_c::column_major::{Mat4 as CMat4,};
+use vek::mat::repr_c::column_major::{Mat3, Mat2};
 use vek::ops::*;
+use vek::geom::{FrustumPlanes};
+use vek::transform::repr_simd::Transform;
 
 assert_eq_size!(mat4_f32_size; Mat4<f32>, [f32; 16]);
 assert_eq_size!(vec4_f32_size; Vec4<f32>, [f32; 4]);
 assert_eq_size!(rgba_f32_size; Rgba<f32>, [f32; 4]);
 assert_eq_size!(rgba_u8_size ; Rgba<u8>, [u8; 4]);
 
-pub mod transform;
 pub mod camera;
 pub mod gx;
 pub mod grx;
