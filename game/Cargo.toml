@@ -4,13 +4,13 @@ version = "0.1.0"
 authors = ["Yoan Lecoq <yoanlecoq.io@gmail.com>"]
 
 [dependencies]
-static_assertions = "0.2.4"
-pretty_assertions = "0.4.1"
-vek = { version = "0.9" }
-sdl2 = "0.31.0"
-gl = "0.7.0"
-alto = "3.0.0"
-freetype-sys = "0.6.0"
-serde = { version = "1.0.15", features = ["derive"] }
+static_assertions = "~0.2"
+pretty_assertions = "~0.4"
+vek = { version = "~0.9" }
+sdl2 = "~0.31"
+gl = "~0.7"
+alto = "~3.0"
+freetype-sys = "~0.6"
+serde = { version = "~1.0.15", features = ["derive"] }
 log = "0.4.0-rc.1"
 env_logger = "0.5.0-rc.1"
