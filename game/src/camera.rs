@@ -1,16 +1,20 @@
-use Mat4;
-use Vec3;
-use SimdVec3;
-use Extent2;
-use Lerp;
-use Clamp;
-use Transform;
-use FrustumPlanes;
+use v::{
+    Mat4,
+    Extent2,
+    Lerp,
+    Clamp,
+    Rect,
+    Vec2,
+    Vec3,
+    Transform,
+    FrustumPlanes,
+};
+use TransformExt;
+
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PerspectiveCamera {
-    pub transform: Transform<f32, f32, f32>,
-    pub viewport_size: Extent2<u32>,
+    pub viewport: Rect<u32, u32>,
     pub fov_y: f32,
     pub near: f32,
     pub far: f32,
@@ -18,41 +22,64 @@ pub struct PerspectiveCamera {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct OrthographicCamera {
-    pub transform: Transform<f32, f32, f32>,
-    pub frustum: FrustumPlanes<f32>,
+    pub viewport: Rect<u32, u32>,
+    pub ortho_right: f32,
+    pub near: f32,
+    pub far: f32,
 }
 
-pub trait TransformExt {
-    fn forward_lh(&self) -> Vec3<f32>;
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Ray<T> {
+    pub position: Vec3<T>,
+    pub direction: Vec3<T>,
 }
 
-impl TransformExt for Transform<f32, f32, f32> {
-    fn forward_lh(&self) -> Vec3<f32> {
-        self.orientation * Vec3::<f32>::forward_lh()
+macro_rules! impl_camera {
+    ($Camera:ident) => {
+        impl $Camera {
+            pub fn aspect_ratio(&self) -> f32 {
+                (self.viewport.w as f32) / (self.viewport.h as f32)
+            }
+            pub fn view_matrix(&self, xform: &Transform<f32, f32, f32>) -> Mat4<f32> {
+                Mat4::look_at(
+                    xform.position, 
+                    xform.position + xform.forward_lh(),
+                    Vec3::unit_y()
+                )
+            }
+            pub fn view_proj_matrix(&self, xform: &Transform<f32,f32,f32>) -> Mat4<f32> {
+                self.proj_matrix() * self.view_matrix(xform)
+            }
+            pub fn viewport_to_world_point(&self, xform: &Transform<f32,f32,f32>, p: Vec3<f32>) -> Vec3<f32> {
+                Mat4::viewport_to_world_no(
+                    p, 
+                    self.view_matrix(xform), self.proj_matrix(),
+                    self.viewport.map(|p| p as f32, |e| e as f32)
+                ).into()
+            }
+            pub fn viewport_to_world_ray(&self, xform: &Transform<f32,f32,f32>, p: Vec2<f32>) -> Ray<f32> {
+                let p1 = self.viewport_to_world_point(xform, Vec3::new(p.x, p.y, 0.));
+                let p2 = self.viewport_to_world_point(xform, Vec3::new(p.x, p.y, 1.));
+                Ray {
+                    position: p1,
+                    direction: (p2-p1).normalized(),
+                }
+            }
+        }
     }
 }
+
+impl_camera!{PerspectiveCamera}
+impl_camera!{OrthographicCamera}
 
 impl PerspectiveCamera {
-    pub fn aspect_ratio(&self) -> f32 {
-        self.viewport_size.w as f32 / (self.viewport_size.h as f32)
-    }
-    pub fn view_matrix(&self) -> Mat4<f32> {
-        Mat4::look_at(
-            self.transform.position, 
-            self.transform.position + self.transform.forward_lh(),
-            SimdVec3::unit_y()
-        )
-    }
     pub fn proj_matrix(&self) -> Mat4<f32> {
         Mat4::perspective_lh_no(self.fov_y, self.aspect_ratio(), self.near, self.far)
     }
-    pub fn view_proj_matrix(&self) -> Mat4<f32> {
-        self.proj_matrix() * self.view_matrix()
-    }
+    /*
     pub fn lerp(a: &Self, b: &Self, t: f32) -> Self {
         let t = t.clamped01();
         Self {
-            transform: Lerp::lerp(&a.transform, &b.transform, t),
             viewport_size: Lerp::lerp_unclamped(
                 a.viewport_size.map(|x| x as f32),
                 b.viewport_size.map(|x| x as f32),
@@ -63,21 +90,30 @@ impl PerspectiveCamera {
             far: Lerp::lerp_unclamped(a.far, b.far, t),
         }
     }
+    */
 }
 
 impl OrthographicCamera {
-    pub fn view_matrix(&self) -> Mat4<f32> {
-        Mat4::look_at(
-            self.transform.position, 
-            self.transform.position + self.transform.forward_lh(),
-            SimdVec3::unit_y()
-        )
-    }
     pub fn proj_matrix(&self) -> Mat4<f32> {
-        Mat4::orthographic_lh_no(self.frustum)
+        Mat4::orthographic_lh_no(self.frustum())
     }
-    pub fn view_proj_matrix(&self) -> Mat4<f32> {
-        self.proj_matrix() * self.view_matrix()
+    pub fn frustum(&self) -> FrustumPlanes<f32> {
+        FrustumPlanes {
+            left: -self.ortho_right,
+            right: self.ortho_right,
+            bottom: -self.ortho_top(),
+            top: self.ortho_top(),
+            near: self.near,
+            far: self.far,
+        }
     }
+    pub fn ortho_top(&self) -> f32 {
+        self.ortho_right / self.aspect_ratio()
+    }
+    /*
+    pub fn quick_viewport_to_world(p: Vec2<f32>) -> Vec2<f32> {
+        Vec2::new(-1 + 2.*x/w, 1 - 2.*y/h)
+    }
+    */
 }
 

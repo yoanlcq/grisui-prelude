@@ -1,11 +1,7 @@
 use gx;
-use Mat4;
-use Vec3;
-use Rgba;
-
 use gx::Object;
-
 use gl::types::*;
+use v::{Mat4, Vec3, Rgba};
 
 static VS_SRC: &[u8] = b"
     #version 130
@@ -84,8 +80,11 @@ impl SimpleColorProgram {
             program, u_mvp, a_position, a_color,
         }
     }
-    pub fn use_program(&mut self, mvp: &Mat4<f32>) {
+    pub fn use_program(&self, mvp: &Mat4<f32>) {
         self.program.use_program();
+        self.set_uniform_mvp(mvp);
+    }
+    pub fn set_uniform_mvp(&self, mvp: &Mat4<f32>) {
         self.program.set_uniform_mat4(self.u_mvp, &mvp);
     }
 }

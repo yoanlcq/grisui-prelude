@@ -1,8 +1,5 @@
 //! General-purpose OpenGL convenience wrappers.
 
-use gl;
-use Mat4;
-
 use std::ffi::CStr;
 use std::ptr;
 use std::mem;
@@ -10,7 +7,9 @@ use std::str;
 use std::slice;
 use std::os::raw::c_void;
 use sdl2::VideoSubsystem;
+use gl;
 use gl::types::*;
+use v::Mat4;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 #[repr(u32)]

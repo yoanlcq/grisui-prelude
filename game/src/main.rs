@@ -1,3 +1,14 @@
+// TODO:
+// - Map window space to world space;
+// - Use OrthographicCamera instead of PerspectiveCamera;
+// - Have toggleable sky gradient;
+// - Set panic handler to display a message box;
+// - Display arbitrary text with FreeType;
+// - Play some sounds with OpenAL;
+// - Have a proper 3D scene with a movable camera;
+// - Create the Bézier path editor;
+// - Set up async asset pipeline;
+
 #![allow(unused_imports)]
 
 #[macro_use]
@@ -20,40 +31,36 @@ extern crate env_logger;
 use std::time::{Instant, Duration};
 use std::thread;
 
+pub mod v {
+    // NOTE: Avoid repr_simd for alignment reasons (when sending packed data to OpenGL)
+    // Also, it's more convenient. repr_simd is better for mass processing.
+    pub use vek::vec::repr_c::{Vec4, Rgba};
+    pub use vek::quaternion::repr_c::Quaternion;
+    pub use vek::vec::repr_c::{Vec2, Vec3, Rgb, Extent2};
+    pub use vek::mat::repr_c::column_major::{Mat4,};
+    pub use vek::mat::repr_c::column_major::{Mat3, Mat2};
+    pub use vek::ops::*;
+    pub use vek::geom::*;
+    pub use vek::transform::repr_c::Transform;
+
+    assert_eq_size!(mat4_f32_size; Mat4<f32>, [f32; 16]);
+    assert_eq_size!(vec4_f32_size; Vec4<f32>, [f32; 4]);
+    assert_eq_size!(rgba_f32_size; Rgba<f32>, [f32; 4]);
+    assert_eq_size!(rgba_u8_size ; Rgba<u8>, [u8; 4]);
+}
+
+use v::{Rect, Vec2};
+
 pub mod duration_ext;
 use duration_ext::DurationExt;
-
-use vek::vec::repr_simd::{Vec4, Rgba};
-use vek::quaternion::repr_simd::Quaternion;
-use vek::vec::repr_c::{Vec2, Vec3, Rgb, Extent2};
-use vek::vec::repr_simd::{Vec3 as SimdVec3};
-use vek::mat::repr_simd::column_major::{Mat4,};
-use vek::mat::repr_c::column_major::{Mat4 as CMat4,};
-use vek::mat::repr_c::column_major::{Mat3, Mat2};
-use vek::ops::*;
-use vek::geom::{FrustumPlanes};
-use vek::transform::repr_simd::Transform;
-
-assert_eq_size!(mat4_f32_size; Mat4<f32>, [f32; 16]);
-assert_eq_size!(vec4_f32_size; Vec4<f32>, [f32; 4]);
-assert_eq_size!(rgba_f32_size; Rgba<f32>, [f32; 4]);
-assert_eq_size!(rgba_u8_size ; Rgba<u8>, [u8; 4]);
-
+pub mod transform_ext;
+use transform_ext::TransformExt;
 pub mod camera;
 pub mod gx;
 pub mod grx;
-pub mod game;
-use game::{Game, GameState};
-
-// TODO:
-// - Have a proper camera;
-// - Test physics simulation steps;
-// - Set panic handler to display a message box;
-// - Display arbitrary text with FreeType;
-// - Play some sounds with OpenAL;
-// - Have a proper 3D scene with a movable camera;
-// - Create the Bézier path editor;
-// - Set up async asset pipeline;
+pub mod global;
+pub mod lazy;
+use global::{Global, TickInfo, FrameInfo, Scene};
 
 // NOTE: The main loop is messy as hell, because it is inhabited by :
 // - An FPS counter;
@@ -62,9 +69,11 @@ use game::{Game, GameState};
 
 fn main() {
 
-    let mut game = Game::new();
+    let mut g = Global::default();
+    let mut scene = Scene::new_test_room(Rect::from((Vec2::zero(), g.viewport_size)));
 
-    let recommended_refresh_rate = game.window.display_mode().unwrap().refresh_rate;
+    let mut frame_i = 0_u64;
+    let recommended_refresh_rate = g.window.display_mode().unwrap().refresh_rate;
     let mut current_time = Instant::now();
     let mut lim_last_time = current_time;
     let mut last_time = current_time;
@@ -74,17 +83,14 @@ fn main() {
     let fps_ceil = 60f64;
     let fps_counter_interval = 1000f64; /* Should be in [100, 1000] */
 
+    let mut tick_i = 0_u64;
     let mut t = Duration::default();
-    let dt = Duration::from_millis(100);
+    let dt = Duration::from_millis(50);
     let mut accumulator = Duration::default();
 
-    let mut event_pump = game.sdl.event_pump().unwrap();
+    let mut event_pump = g.sdl.event_pump().unwrap();
 
-    while !game.should_quit {
-
-        for event in event_pump.poll_iter() {
-            game.handle_sdl2_event(&event);
-        }
+    'running: loop {
 
         current_time = Instant::now();
 
@@ -127,18 +133,34 @@ fn main() {
         accumulator += frame_time;
 
         while accumulator >= dt {
-            game.previous_state = game.current_state.clone();
-            game.current_state.integrate(t, dt);
+            scene.replace_previous_state_by_current();
+            g.replace_previous_state_by_current();
+            for event in event_pump.poll_iter() {
+                g.handle_sdl2_event_before_new_tick(&event);
+                scene.handle_sdl2_event_before_new_tick(&event);
+            }
+            scene.integrate(TickInfo {
+                t, dt, tick_i, g: &mut g,
+            });
+            tick_i += 1;
+
+            if g.input.wants_to_quit && scene.allows_quitting {
+                break 'running;
+            }
+
             t += dt;
             accumulator -= dt;
         }
-
-        let alpha = accumulator.to_f64_seconds() / dt.to_f64_seconds();
-        let state = GameState::lerp(&game.previous_state, &game.current_state, alpha as f32);
-
-        game.render_clear();
-        game.render(&state);
-        game.present();
+        
+        g.render_clear();
+        scene.render(FrameInfo {
+            frame_i,
+            lerp_factor_between_previous_and_current:
+                accumulator.to_f64_seconds() / dt.to_f64_seconds(),
+            g: &mut g,
+        });
+        g.present();
+        frame_i += 1;
 
         if fps_limit > 0_f64 {
             let a_frame = Duration::from_millis((1000_f64 / fps_limit).round() as _);
