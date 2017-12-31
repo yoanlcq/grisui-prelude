@@ -1,5 +1,5 @@
 use ids::*;
-use v::{Rgb, Transform, Vec2, Extent2, Rect, Lerp, Mat4};
+use v::{Rgb, Transform, Vec2, Extent2, Rect, Lerp, Mat4, Vec3};
 use sdl2::event::{Event, WindowEvent};
 use camera::OrthographicCamera;
 use gl;
@@ -99,9 +99,13 @@ impl Scene {
         }
     }
     pub fn integrate(&mut self, tick: GlobalDataUpdatePack) {
+        use ::std::f32::consts::PI;
         let dt = tick.dt.to_f64_seconds() as f32;
-        let xform = &mut self.transforms.get_mut(&EntityID::from_raw(0)).unwrap().current;
-        xform.position.x += 0.1 * dt;
+        let t = tick.t.to_f64_seconds() as f32;
+        let xform = &mut self.transforms.get_mut(&EntityID::from_raw(1)).unwrap().current;
+        xform.position.x = (PI * t).sin();
+        xform.orientation.rotate_z(PI * dt);
+        xform.scale = Vec3::broadcast((PI * t).sin());
     }
     pub fn prepare_render_state_via_lerp_previous_current(&mut self, alpha: f64) {
         let alpha = alpha as f32;

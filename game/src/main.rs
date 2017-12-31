@@ -1,6 +1,4 @@
 // TODO:
-// - Split stuff into more files and/or crates.
-// - Have toggleable sky gradient;
 // - Display arbitrary text with FreeType;
 // - Play some sounds with OpenAL;
 // - Create the Bézier path editor;
