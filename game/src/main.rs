@@ -1,21 +1,21 @@
 // TODO:
-// - Map window space to world space;
-// - Use OrthographicCamera instead of PerspectiveCamera;
+// - Split stuff into more files and/or crates.
 // - Have toggleable sky gradient;
-// - Set panic handler to display a message box;
 // - Display arbitrary text with FreeType;
 // - Play some sounds with OpenAL;
-// - Have a proper 3D scene with a movable camera;
 // - Create the Bézier path editor;
 // - Set up async asset pipeline;
+//
+// WONTFIX:
+// - Mouse position at the beginning: SDL_GetMouseState() just doesn't work.
+//   XQueryPointer would do the trick.
 
-#![allow(unused_imports)]
+// #![allow(unused_imports)]
 
 #[macro_use]
 extern crate pretty_assertions;
 #[macro_use]
 extern crate static_assertions;
-extern crate vek;
 extern crate sdl2;
 extern crate gl;
 extern crate alto;
@@ -26,22 +26,21 @@ extern crate serde;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
-
-
-use std::time::{Instant, Duration};
-use std::thread;
+#[macro_use]
+extern crate id_realm;
 
 pub mod v {
+    extern crate vek;
     // NOTE: Avoid repr_simd for alignment reasons (when sending packed data to OpenGL)
     // Also, it's more convenient. repr_simd is better for mass processing.
-    pub use vek::vec::repr_c::{Vec4, Rgba};
-    pub use vek::quaternion::repr_c::Quaternion;
-    pub use vek::vec::repr_c::{Vec2, Vec3, Rgb, Extent2};
-    pub use vek::mat::repr_c::column_major::{Mat4,};
-    pub use vek::mat::repr_c::column_major::{Mat3, Mat2};
-    pub use vek::ops::*;
-    pub use vek::geom::*;
-    pub use vek::transform::repr_c::Transform;
+    pub use self::vek::vec::repr_c::{Vec4, Rgba};
+    pub use self::vek::quaternion::repr_c::Quaternion;
+    pub use self::vek::vec::repr_c::{Vec2, Vec3, Rgb, Extent2};
+    pub use self::vek::mat::repr_c::column_major::{Mat4,};
+    pub use self::vek::mat::repr_c::column_major::{Mat3, Mat2};
+    pub use self::vek::ops::*;
+    pub use self::vek::geom::*;
+    pub use self::vek::transform::repr_c::Transform;
 
     assert_eq_size!(mat4_f32_size; Mat4<f32>, [f32; 16]);
     assert_eq_size!(vec4_f32_size; Vec4<f32>, [f32; 4]);
@@ -49,18 +48,19 @@ pub mod v {
     assert_eq_size!(rgba_u8_size ; Rgba<u8>, [u8; 4]);
 }
 
-use v::{Rect, Vec2};
-
-pub mod duration_ext;
-use duration_ext::DurationExt;
-pub mod transform_ext;
-use transform_ext::TransformExt;
+// NOTE: Keep sorted alphabetically, for convenience
 pub mod camera;
-pub mod gx;
-pub mod grx;
+pub mod duration_ext;
 pub mod global;
+pub mod grx;
+pub mod gx;
+pub mod ids;
+pub mod input;
 pub mod lazy;
-use global::{Global, TickInfo, FrameInfo, Scene};
+pub mod mesh;
+pub mod save;
+pub mod scene;
+pub mod transform_ext;
 
 // NOTE: The main loop is messy as hell, because it is inhabited by :
 // - An FPS counter;
@@ -69,7 +69,16 @@ use global::{Global, TickInfo, FrameInfo, Scene};
 
 fn main() {
 
+    use std::time::{Instant, Duration};
+    use std::thread;
+    use scene::Scene;
+    use global::{Global, GlobalDataUpdatePack};
+    use v::{Rect, Vec2};
+    use duration_ext::DurationExt;
+
+    info!("Initializing...");
     let mut g = Global::default();
+    info!("Loading test room scene...");
     let mut scene = Scene::new_test_room(Rect::from((Vec2::zero(), g.viewport_size)));
 
     let mut frame_i = 0_u64;
@@ -139,9 +148,7 @@ fn main() {
                 g.handle_sdl2_event_before_new_tick(&event);
                 scene.handle_sdl2_event_before_new_tick(&event);
             }
-            scene.integrate(TickInfo {
-                t, dt, tick_i, g: &mut g,
-            });
+            scene.integrate(GlobalDataUpdatePack { t, dt, tick_i, frame_i, g: &mut g, });
             tick_i += 1;
 
             if g.input.wants_to_quit && scene.allows_quitting {
@@ -152,13 +159,11 @@ fn main() {
             accumulator -= dt;
         }
         
-        g.render_clear();
-        scene.render(FrameInfo {
-            frame_i,
-            lerp_factor_between_previous_and_current:
-                accumulator.to_f64_seconds() / dt.to_f64_seconds(),
-            g: &mut g,
-        });
+        let alpha = accumulator.to_f64_seconds() / dt.to_f64_seconds();
+        scene.prepare_render_state_via_lerp_previous_current(alpha);
+
+        g.render_clear(scene.clear_color);
+        scene.render(GlobalDataUpdatePack { t, dt, tick_i, frame_i, g: &mut g, });
         g.present();
         frame_i += 1;
 

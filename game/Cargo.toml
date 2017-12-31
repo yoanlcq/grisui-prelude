@@ -14,3 +14,4 @@ freetype-sys = "~0.6"
 serde = { version = "~1.0.15", features = ["derive"] }
 log = "0.4.0-rc.1"
 env_logger = "0.5.0-rc.1"
+id_realm = { path = "../id_realm" }

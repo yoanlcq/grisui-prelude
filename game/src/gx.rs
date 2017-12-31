@@ -34,7 +34,7 @@ fn set_label_actual(ns: ObjType, id: GLuint, label: &[u8]) {
 }
 static mut SET_LABEL: fn(ObjType, GLuint, &[u8]) = set_label_dummy;
 
-pub trait Object {
+pub trait GLResource {
     fn gl_id(&self) -> GLuint;
     fn obj_type() -> ObjType;
     fn set_label(&self, label: &[u8]) {
@@ -234,7 +234,7 @@ macro_rules! impl_shader_subtype {
                     self.0.info_log()
                 }
             }
-            impl Object for $Self {
+            impl GLResource for $Self {
                 fn gl_id(&self) -> GLuint {
                     self.0.gl_id()
                 }
@@ -284,7 +284,7 @@ impl Shader {
         }
     }
 }
-impl Object for Shader {
+impl GLResource for Shader {
     fn gl_id(&self) -> GLuint {
         self.0
     }
@@ -365,7 +365,7 @@ impl Program {
         }
     }
 }
-impl Object for Program {
+impl GLResource for Program {
     fn gl_id(&self) -> GLuint {
         self.0
     }
@@ -395,7 +395,7 @@ impl Vao {
         }
     }
 }
-impl Object for Vao {
+impl GLResource for Vao {
     fn gl_id(&self) -> GLuint {
         self.0
     }
@@ -414,7 +414,7 @@ impl Buffer {
         Buffer(buffer)
     }
 }
-impl Object for Buffer {
+impl GLResource for Buffer {
     fn gl_id(&self) -> GLuint {
         self.0
     }
@@ -460,7 +460,7 @@ impl Vbo {
         }
     }
 }
-impl Object for Vbo {
+impl GLResource for Vbo {
     fn gl_id(&self) -> GLuint {
         self.0.gl_id()
     }

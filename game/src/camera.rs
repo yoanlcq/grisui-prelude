@@ -1,15 +1,12 @@
 use v::{
     Mat4,
-    Extent2,
-    Lerp,
-    Clamp,
     Rect,
     Vec2,
     Vec3,
     Transform,
     FrustumPlanes,
 };
-use TransformExt;
+use transform_ext::TransformExt;
 
 
 #[derive(Debug, Copy, Clone, PartialEq)]

@@ -1,5 +1,5 @@
 use gx;
-use gx::Object;
+use gx::GLResource;
 use gl::types::*;
 use v::{Mat4, Vec3, Rgba};
 
