@@ -1,3 +1,4 @@
+use std::ops::{Index, IndexMut};
 use ids::*;
 use v::{Rgb, Transform, Vec2, Extent2, Rect, Lerp, Mat4, Vec3};
 use sdl2::event::{Event, WindowEvent};
@@ -16,60 +17,69 @@ pub struct Scene {
     pub meshes: EntityIDMap<MeshID>,
 }
 
+#[repr(C)]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct SimStates<T> {
     pub previous: T,
-    pub current: T,
     pub render: T,
+    pub current: T,
+}
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SimState {
+    Previous = 0,
+    Render = 1,
+    Current = 2, 
 }
 
 
-impl<T: Clone> From<T> for SimStates<T> {
+impl<T: Copy> From<T> for SimStates<T> {
     fn from(value: T) -> Self {
         let previous = value;
-        let current = previous.clone();
-        let render = previous.clone();
+        let current = value;
+        let render = value;
         Self { previous, current, render }
+    }
+}
+
+impl<T> SimStates<T> {
+    pub fn for_states<F>(&mut self, f: F) where F: Fn(&mut T) {
+        f(&mut self.previous);
+        f(&mut self.render);
+        f(&mut self.current);
+    }
+    pub fn map_states<F>(self, f: F) -> Self where F: Fn(T) -> T {
+        let Self { previous, render, current } = self;
+        let previous = f(previous);
+        let render = f(render);
+        let current = f(current);
+        Self { previous, render, current }
+    }
+}
+
+impl<T> Index<SimState> for SimStates<T> {
+    type Output = T;
+    fn index(&self, i: SimState) -> &T {
+        match i {
+            SimState::Previous => &self.previous,
+            SimState::Render => &self.render,
+            SimState::Current => &self.current,
+        }
+    }
+}
+
+impl<T> IndexMut<SimState> for SimStates<T> {
+    fn index_mut(&mut self, i: SimState) -> &mut T {
+        match i {
+            SimState::Previous => &mut self.previous,
+            SimState::Render => &mut self.render,
+            SimState::Current => &mut self.current,
+        }
     }
 }
 
 
 impl Scene {
-    pub fn new_test_room(viewport: Rect<u32, u32>) -> Self {
-        let mut entity_id_domain = EntityIDDomain::new_empty();
-        let hasher_builder = EntityIDHasherBuilder::default();
-        let mut meshes = EntityIDMap::with_capacity_and_hasher(1, hasher_builder);
-        let mut transforms = EntityIDMap::with_capacity_and_hasher(2, hasher_builder);
-        let mut cameras = EntityIDMap::with_capacity_and_hasher(1, hasher_builder);
-
-        let camera_id = EntityID::from_raw(0);
-        let quad_id = EntityID::from_raw(1);
-        entity_id_domain.include_id(camera_id);
-        entity_id_domain.include_id(quad_id);
-
-        transforms.insert(camera_id, Transform::default().into());
-        cameras.insert(camera_id, SimStates::from(OrthographicCamera {
-            viewport, ortho_right: 1., near: 0.01, far: 100.,
-        }));
-
-        transforms.insert(quad_id, {
-            let mut xform = Transform::default();
-            xform.position.z = 1.;
-            xform.scale /= 20.;
-            xform.into()
-        });
-        meshes.insert(quad_id, MeshID::from_raw(0));
-
-        let slf = Self {
-            entity_id_domain,
-            meshes, transforms, cameras,
-            allows_quitting: true,
-            clear_color: Rgb::cyan(),
-        };
-        slf.debug_entity_id(camera_id);
-        slf.debug_entity_id(quad_id);
-        slf
-    }
     pub fn handle_sdl2_event_before_new_tick(&mut self, event: &Event) {
         match *event {
             Event::Window { win_event, .. } => match win_event {
@@ -88,9 +98,7 @@ impl Scene {
         for camera in self.cameras.values_mut() {
             // NOTE: Every camera might want to handle this differently
             let vp = Rect::from((Vec2::zero(), viewport_size));
-            camera.current.viewport = vp;
-            camera.previous.viewport = vp;
-            camera.render.viewport = vp;
+            camera.for_states(|s| s.viewport = vp);
         }
     }
     pub fn replace_previous_state_by_current(&mut self) {
@@ -157,6 +165,42 @@ impl Scene {
                 }
             }
         }
+    }
+
+    pub fn new_test_room(viewport: Rect<u32, u32>) -> Self {
+        let mut entity_id_domain = EntityIDDomain::new_empty();
+        let hasher_builder = EntityIDHasherBuilder::default();
+        let mut meshes = EntityIDMap::with_capacity_and_hasher(1, hasher_builder);
+        let mut transforms = EntityIDMap::with_capacity_and_hasher(2, hasher_builder);
+        let mut cameras = EntityIDMap::with_capacity_and_hasher(1, hasher_builder);
+
+        let camera_id = EntityID::from_raw(0);
+        let quad_id = EntityID::from_raw(1);
+        entity_id_domain.include_id(camera_id);
+        entity_id_domain.include_id(quad_id);
+
+        transforms.insert(camera_id, Transform::default().into());
+        cameras.insert(camera_id, SimStates::from(OrthographicCamera {
+            viewport, ortho_right: 1., near: 0.01, far: 100.,
+        }));
+
+        transforms.insert(quad_id, {
+            let mut xform = Transform::default();
+            xform.position.z = 1.;
+            xform.scale /= 20.;
+            xform.into()
+        });
+        meshes.insert(quad_id, MeshID::from_raw(0));
+
+        let slf = Self {
+            entity_id_domain,
+            meshes, transforms, cameras,
+            allows_quitting: true,
+            clear_color: Rgb::cyan(),
+        };
+        slf.debug_entity_id(camera_id);
+        slf.debug_entity_id(quad_id);
+        slf
     }
 }
 

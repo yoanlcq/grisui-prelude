@@ -1,5 +1,8 @@
 use std::collections::HashSet;
 use std::env;
+use std::path::PathBuf;
+use std::fs;
+use std::fs::{DirEntry, ReadDir};
 use std::time::Duration;
 use std::fmt::{self, Formatter, Debug};
 use env_logger;
@@ -24,6 +27,8 @@ use save::Save;
 
 pub struct Global {
     // Runtime
+    pub path_to_res: PathBuf,
+    pub path_to_saves: PathBuf,
     pub alto: Alto,
     pub alto_dev: alto::OutputDevice,
     pub alto_context: alto::Context,
@@ -117,9 +122,89 @@ fn setup_log() {
 
 impl Default for Global {
     fn default() -> Self {
+
+        fn check_if_has_res_content(parent: DirEntry, entries: ReadDir) -> Option<PathBuf> {
+            let mut expected = vec![
+                ("fonts", true),
+                ("meshes", true),
+                ("palette.txt", false),
+            ];
+            for path in entries.filter(Result::is_ok).map(Result::unwrap).map(|x| x.path()) {
+                let (is_file, is_dir) = (path.is_file(), path.is_dir());
+                if !is_file && !is_dir {
+                    continue;
+                }
+                expected.retain(|e| !(path.ends_with(e.0) && ((e.1 && is_dir) || (!e.1 && is_file))));
+            }
+            if expected.is_empty() {
+                return Some(parent.path().to_path_buf());
+            }
+            let names = expected.iter().map(|x| x.0).collect::<Vec<_>>();
+            warn!("res/ folder misses {:?}", names.as_slice());
+            None
+        }
+
+        fn check_if_res(entry: DirEntry) -> Option<PathBuf> {
+            let p = entry.path();
+            if p.ends_with("res") && p.is_dir() {
+                info!("Found candidate `res/` folder at `{}`", p.display());
+                if let Ok(entries) = fs::read_dir(p) {
+                    return check_if_has_res_content(entry, entries);
+                }
+            }
+            None
+        }
+
+        fn look_for_res(entries: ReadDir) -> Option<PathBuf> {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    if let Some(res_path) = check_if_res(entry) {
+                        return Some(res_path);
+                    }
+                }
+            }
+            None
+        }
+
         setup_panic_hook();
         setup_env();
         setup_log();
+
+        let mut path = match env::current_exe() {
+            Ok(p) => {
+                info!("Path of current executable is: {}", p.display());
+                p.parent().unwrap().to_path_buf()
+            },
+            Err(e) => {
+                error!("Failed to get current exe path: {}", e);
+                let p = env::current_dir().unwrap();
+                info!("Starting from `{}`", p.display());
+                p
+            },
+        };
+
+        let path_to_res = loop {
+            if let Ok(entries) = fs::read_dir(&path) {
+                if let Some(res_path) = look_for_res(entries) {
+                    break res_path;
+                }
+            }
+            if let Some(_) = path.parent() {
+                info!("Couldn't find `res/` in `{}`", path.display());
+                path.pop();
+                info!("Trying in `{}`...", path.display());
+                continue; 
+            }
+            panic!("Couldn't find resource folder!");
+        };
+
+        info!("Resource path located at `{}`", path_to_res.display());
+
+        let mut path_to_saves = path_to_res.clone();
+        path_to_saves.pop();
+        path_to_saves.push("saves");
+        assert!(path_to_saves.is_dir());
+        info!("Saves path located at `{}`", path_to_saves.display());
 
         let alto = Alto::load_default().unwrap();
         let alto_dev = alto.open(None).unwrap();
@@ -218,6 +303,7 @@ impl Default for Global {
         let viewport_size = Extent2::from(window.drawable_size());
 
         let mut g = Self {
+            path_to_res, path_to_saves,
             alto, alto_dev, alto_context,
             sdl, video, window, gl_context, gl_simple_color_program,
 
@@ -253,6 +339,7 @@ macro_rules! impl_debug_for_global {
 impl_debug_for_global!{
     ignore: {alto, alto_dev, alto_context, sdl, window, gl_context, }
     fields: {
+        path_to_res, path_to_saves,
         video, gl_simple_color_program,
 
         tags,

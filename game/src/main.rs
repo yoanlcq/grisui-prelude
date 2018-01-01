@@ -2,11 +2,14 @@
 // - Display arbitrary text with FreeType;
 // - Play some sounds with OpenAL;
 // - Create the Bézier path editor;
-// - Set up async asset pipeline;
+// - Load resource files, as well as async ones. Async resource manager if you will.
 //
 // WONTFIX:
 // - Mouse position at the beginning: SDL_GetMouseState() just doesn't work.
 //   XQueryPointer would do the trick.
+// - FTP for assets:
+//   Use the Git repo first, then see if we reach the limit.
+//   If so, move the repo to a new one and start using ftp.
 
 // #![allow(unused_imports)]
 
