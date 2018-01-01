@@ -19,10 +19,11 @@ use grx;
 use v::{Rgb, Extent2};
 use scene::Scene;
 use input::Input;
-use mesh::Mesh;
+use mesh::{Mesh, FontAtlasMesh};
 use ids::*;
 use lazy::Lazy;
 use save::Save;
+use fonts::Fonts;
 
 
 pub struct Global {
@@ -37,8 +38,11 @@ pub struct Global {
     pub window: Window,
     pub gl_context: GLContext,
     pub gl_simple_color_program: grx::SimpleColorProgram,
+    pub gl_text_program: grx::TextProgram,
+    pub fonts: Fonts,
 
     // Persistent data, ID domains
+    pub font_atlas_mesh: FontAtlasMesh,
     pub tags: TagIDRealm<String>,
     pub palette_colors: PaletteEntryIDRealm<Rgb<u8>>,
     pub palette_tags: TagIDMap<HashSet<PaletteEntryID>>,
@@ -126,6 +130,8 @@ impl Default for Global {
         fn check_if_has_res_content(parent: DirEntry, entries: ReadDir) -> Option<PathBuf> {
             let mut expected = vec![
                 ("fonts", true),
+                ("sounds", true),
+                ("musics", true),
                 ("meshes", true),
                 ("palette.txt", false),
             ];
@@ -261,6 +267,11 @@ impl Default for Global {
         }
 
         let gl_simple_color_program = grx::SimpleColorProgram::new();
+        let gl_text_program = grx::TextProgram::new();
+
+        let mut path_to_fonts = path_to_res.clone();
+        path_to_fonts.push("fonts");
+        let fonts = Fonts::from_path(&path_to_fonts).unwrap();
 
         let input = Input::default();
 
@@ -288,6 +299,10 @@ impl Default for Global {
             })
         );
 
+        let font_atlas_mesh = FontAtlasMesh::new_font_atlas_unit_quad(
+            &gl_text_program, "Text Atlas", gx::UpdateHint::Never
+        );
+
         let all_saves = vec![
             Save::default()
         ];
@@ -305,8 +320,12 @@ impl Default for Global {
         let mut g = Self {
             path_to_res, path_to_saves,
             alto, alto_dev, alto_context,
-            sdl, video, window, gl_context, gl_simple_color_program,
+            sdl, video, window, gl_context, 
+            gl_simple_color_program,
+            gl_text_program,
+            fonts,
 
+            font_atlas_mesh,
             tags,
             palette_colors,
             palette_tags,
@@ -340,8 +359,10 @@ impl_debug_for_global!{
     ignore: {alto, alto_dev, alto_context, sdl, window, gl_context, }
     fields: {
         path_to_res, path_to_saves,
-        video, gl_simple_color_program,
+        video, gl_simple_color_program, gl_text_program,
+        fonts,
 
+        font_atlas_mesh,
         tags,
         palette_colors,
         palette_tags,

@@ -9,7 +9,7 @@ use std::os::raw::c_void;
 use sdl2::VideoSubsystem;
 use gl;
 use gl::types::*;
-use v::Mat4;
+use v::{Extent2, Rgba, Mat4};
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 #[repr(u32)]
@@ -128,6 +128,7 @@ Stencil buffer bits : {}",
     gl::Enable(gl::DEPTH_TEST);
     gl::Enable(gl::BLEND);                                                         
     gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);  
+    gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
 }
 
 extern "system" fn gl_dbg_msg_callback(
@@ -190,6 +191,16 @@ struct Buffer(GLuint);
 pub struct Vbo(Buffer);
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct Vao(GLuint);
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct Texture2D(GLuint);
+
+impl Drop for Texture2D {
+    fn drop(&mut self) {
+        unsafe {
+            gl::DeleteTextures(1, &self.gl_id());
+        }
+    }
+}
 
 impl Drop for Shader {
     fn drop(&mut self) {
@@ -358,10 +369,20 @@ impl Program {
         }
     }
     */
-    pub fn set_uniform_mat4(&self, loc: GLint, m: &Mat4<f32>) {
+    pub fn set_uniform_4f(&self, loc: GLint, m: &[[GLfloat; 4]]) {
         unsafe {
-            let transpose = m.gl_should_transpose() as GLboolean;
-            gl::UniformMatrix4fv(loc, 1, transpose, m.cols[0].as_ptr());
+            gl::Uniform4fv(loc, m.len() as _, &m[0][0]);
+        }
+    }
+    pub fn set_uniform_1i(&self, loc: GLint, m: &[GLint]) {
+        unsafe {
+            gl::Uniform1iv(loc, m.len() as _, m.as_ptr());
+        }
+    }
+    pub fn set_uniform_mat4(&self, loc: GLint, m: &[Mat4<f32>]) {
+        let transpose = m[0].gl_should_transpose() as GLboolean;
+        unsafe {
+            gl::UniformMatrix4fv(loc, m.len() as _, transpose, m[0].cols[0].as_ptr());
         }
     }
 }
@@ -466,5 +487,106 @@ impl GLResource for Vbo {
     }
     fn obj_type() -> ObjType {
         Buffer::obj_type()
+    }
+}
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct TextureParamsI {
+    pub wrap_s: GLenum,
+    pub wrap_t: GLenum,
+    pub min_filter: GLenum,
+    pub mag_filter: GLenum,
+}
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Texture2DImage<'a, Pixel: 'a> {
+    pub pixels: &'a [Pixel],
+    pub size: Extent2<usize>,
+    pub mipmap_level: GLint, // 0
+    pub internal_format: GLenum,
+    pub pixels_format: GLenum,
+    pub pixel_element_type: GLenum,
+}
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Texture2DInit<'a, Pixel: 'a> {
+    pub image: Texture2DImage<'a, Pixel>,
+    pub params_i: TextureParamsI,
+    pub do_generate_mipmaps: bool,
+}
+
+impl TextureParamsI {
+    pub fn new_clamp_to_edge_linear() -> Self {
+        Self {
+            wrap_s: gl::CLAMP_TO_EDGE,
+            wrap_t: gl::CLAMP_TO_EDGE,
+            min_filter: gl::LINEAR,
+            mag_filter: gl::LINEAR,
+        }
+    }
+}
+
+impl<'a> Texture2DImage<'a, u8> {
+    pub fn from_greyscale_u8(pixels: &'a [u8], size: Extent2<usize>) -> Self {
+        Self {
+            pixels, size, mipmap_level: 0,
+            internal_format: gl::RED,
+            pixels_format: gl::RED,
+            pixel_element_type: gl::UNSIGNED_BYTE,
+        }
+    }
+}
+impl<'a> Texture2DImage<'a, Rgba<u8>> {
+    pub fn from_rgba_u8(pixels: &'a [Rgba<u8>], size: Extent2<usize>) -> Self {
+        Self {
+            pixels, size, mipmap_level: 0,
+            internal_format: gl::RGBA,
+            pixels_format: gl::RGBA,
+            pixel_element_type: gl::UNSIGNED_BYTE,
+        }
+    }
+}
+
+pub fn set_active_texture(i: GLuint) {
+    unsafe {
+        gl::ActiveTexture(gl::TEXTURE0 + i);
+    }
+}
+
+impl Texture2D {
+    pub fn new<T>(t: Texture2DInit<T>) -> Self {
+        let Texture2DInit { image: img, params_i: p, do_generate_mipmaps } = t;
+        let mut id = 0;
+        unsafe {
+            gl::GenTextures(1, &mut id);
+            assert_ne!(id, 0);
+            gl::BindTexture(gl::TEXTURE_2D, id);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, p.wrap_s as _);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, p.wrap_t as _);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, p.min_filter as _);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, p.mag_filter as _);
+            // NOTE: glPixelStorei(GL_UNPACK_ALIGNMENT, 1); done in gx::init().
+            gl::TexImage2D(
+                gl::TEXTURE_2D, img.mipmap_level, img.internal_format as _,
+                img.size.w as _, img.size.h as _, 0,
+                img.pixels_format, img.pixel_element_type, img.pixels.as_ptr() as *const _
+            );
+            if do_generate_mipmaps {
+                gl::GenerateMipmap(gl::TEXTURE_2D);
+            }
+            Texture2D(id)
+        }
+    }
+    pub fn bind(&self) {
+        unsafe {
+            gl::BindTexture(gl::TEXTURE_2D, self.gl_id());
+        }
+    }
+}
+
+impl GLResource for Texture2D {
+    fn gl_id(&self) -> GLuint {
+        self.0
+    }
+    fn obj_type() -> ObjType {
+        ObjType::Texture
     }
 }

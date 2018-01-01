@@ -1,11 +1,12 @@
 use std::ops::{Index, IndexMut};
 use ids::*;
-use v::{Rgb, Transform, Vec2, Extent2, Rect, Lerp, Mat4, Vec3};
+use v::{Rgb, Transform, Vec2, Extent2, Rect, Lerp, Mat4, Vec3, Rgba};
 use sdl2::event::{Event, WindowEvent};
 use camera::OrthographicCamera;
 use gl;
 use global::GlobalDataUpdatePack;
 use duration_ext::DurationExt;
+use grx;
 
 #[derive(Debug)]
 pub struct Scene {
@@ -143,6 +144,7 @@ impl Scene {
                 let mesh = frame.g.meshes[*mesh_id].as_ref().unwrap();
                 let mesh_xform = self.transforms[mesh_eid].render;
                 /*
+                 * // NOTE: Code to follow mouse
                 let mesh_xform = {
                     let mut xform = Transform::default();
                     let mut mousepos = frame.g.input.mouse.position.map(|x| x as f32);
@@ -164,6 +166,14 @@ impl Scene {
                     gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
                 }
             }
+            let model = Mat4::identity();
+            let mvp = proj * view * model;
+            frame.g.gl_text_program.use_program(&mvp, grx::TextureUnit::Basis33, Rgba::black());
+            let mesh = &frame.g.font_atlas_mesh;
+            mesh.vao.bind();
+            unsafe {
+                gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
+            }
         }
     }
 
@@ -179,10 +189,14 @@ impl Scene {
         entity_id_domain.include_id(camera_id);
         entity_id_domain.include_id(quad_id);
 
-        transforms.insert(camera_id, Transform::default().into());
-        cameras.insert(camera_id, SimStates::from(OrthographicCamera {
-            viewport, ortho_right: 1., near: 0.01, far: 100.,
-        }));
+        let near = 0.01_f32;
+        transforms.insert(camera_id, Transform {
+            position: Vec3::back_lh() * (near + 0.001_f32),
+            .. Default::default()
+        }.into());
+        cameras.insert(camera_id, OrthographicCamera {
+            viewport, ortho_right: 1., near, far: 100.,
+        }.into());
 
         transforms.insert(quad_id, {
             let mut xform = Transform::default();

@@ -52,6 +52,7 @@ pub mod v {
 // NOTE: Keep sorted alphabetically, for convenience
 pub mod camera;
 pub mod duration_ext;
+pub mod fonts;
 pub mod global;
 pub mod grx;
 pub mod gx;
