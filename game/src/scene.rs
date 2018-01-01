@@ -166,7 +166,8 @@ impl Scene {
                     gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
                 }
             }
-            let model = Mat4::identity();
+            let t = frame.t.to_f64_seconds() as f32;
+            let model = Mat4::scaling_3d(256./(800./2.)).translated_3d(Vec3::unit_x()*((t*4.).round()/(800./2.)));
             let mvp = proj * view * model;
             frame.g.gl_text_program.use_program(&mvp, grx::TextureUnit::Basis33, Rgba::black());
             let mesh = &frame.g.font_atlas_mesh;
