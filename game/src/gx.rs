@@ -83,7 +83,7 @@ Renderer            : {}
 Vendor              : {}
 GLSL version        : {}
 Profile flags       : {} (bits: 0b{:08b})
-Context flags       : {}{}{}{} (bits: {:08b})
+Context flags       : {}{}{}{} (bits: 0b{:08b})
 Double buffering    : {}
 Stereo buffers      : {}
 Depth buffer bits   : {}
