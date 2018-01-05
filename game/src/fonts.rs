@@ -159,18 +159,28 @@ impl Fonts {
                 }
             },
         };
-        let chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        // 33 to 126
+        let chars = {
+            let mut chars = String::new();
+            // All printable ASCII chars
+            for i in 33_u8..127_u8 {
+                chars.push(i as char);
+            }
+            // Hon hon hon Baguette Au Jambon
+            chars += "°éèçàù";
+            chars
+        };
         let basis33 = {
             let mut p = path.to_path_buf();
             p.push("basis33");
             p.push("basis33.ttf");
-            ManuallyDrop::new(Font::from_path(&mut ft, &p, 16, chars, grx::TextureUnit::Basis33, 256)?)
+            ManuallyDrop::new(Font::from_path(&mut ft, &p, 16, &chars, grx::TextureUnit::Basis33, 256)?)
         };
         let petita = {
             let mut p = path.to_path_buf();
             p.push("petita");
             p.push("PetitaMedium.ttf");
-            ManuallyDrop::new(Font::from_path(&mut ft, &p, 18, chars, grx::TextureUnit::Petita, 256)?)
+            ManuallyDrop::new(Font::from_path(&mut ft, &p, 18, &chars, grx::TextureUnit::Petita, 256)?)
         };
 
         Ok(Self { ft, basis33, petita })
