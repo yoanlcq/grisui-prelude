@@ -158,6 +158,11 @@ impl Scene {
 
             // Render text overlay
 
+            // TODO: 
+            // - Which space ? Screen-space or world-space ?
+            // - Depth test or not ??
+            // - Centered text ?
+            // - Maximum text region width ? (overflow: wrap ?)
             unsafe {
                 gl::Disable(gl::DEPTH_TEST);
             }
