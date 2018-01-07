@@ -369,6 +369,11 @@ impl Program {
         }
     }
     */
+    pub fn set_uniform_2f(&self, loc: GLint, m: &[[GLfloat; 2]]) {
+        unsafe {
+            gl::Uniform2fv(loc, m.len() as _, &m[0][0]);
+        }
+    }
     pub fn set_uniform_4f(&self, loc: GLint, m: &[[GLfloat; 4]]) {
         unsafe {
             gl::Uniform4fv(loc, m.len() as _, &m[0][0]);

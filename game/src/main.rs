@@ -4,6 +4,9 @@
 // - Create the Bézier path editor;
 // - Load resource files, as well as async ones. Async resource manager if you will.
 //
+// Minor:
+// - It bugs me to type Transfor<f32,f32,f32> every time;
+//
 // WONTFIX:
 // - Mouse position at the beginning: SDL_GetMouseState() just doesn't work.
 //   XQueryPointer would do the trick.

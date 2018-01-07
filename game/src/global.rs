@@ -81,7 +81,7 @@ fn setup_panic_hook() {
         if let Some(payload) = info.payload().downcast_ref::<&str>() {
             msg += payload;
         } else {
-            msg += "<no payload>";
+            msg += "<unknown reason>";
         }
 
         use sdl2::messagebox;

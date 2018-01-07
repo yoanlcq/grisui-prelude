@@ -73,14 +73,13 @@ pub struct FontAtlasMesh {
 
 impl FontAtlasMesh {
     pub fn new_font_atlas_unit_quad(prog: &grx::TextProgram, label: &str, update_hint: gx::UpdateHint) -> Self {
-        let s = 0.5_f32;
         let vertices = vec![
-            grx::TextVertex { position: Vec2::new(-s, -s), texcoords: Vec2::new(0., 1.) },
-            grx::TextVertex { position: Vec2::new( s,  s), texcoords: Vec2::new(1., 0.) },
-            grx::TextVertex { position: Vec2::new(-s,  s), texcoords: Vec2::new(0., 0.) },
-            grx::TextVertex { position: Vec2::new(-s, -s), texcoords: Vec2::new(0., 1.) },
-            grx::TextVertex { position: Vec2::new( s, -s), texcoords: Vec2::new(1., 1.) },
-            grx::TextVertex { position: Vec2::new( s,  s), texcoords: Vec2::new(1., 0.) },
+            grx::TextVertex { position: Vec2::new(0., -1.), texcoords: Vec2::new(0., 1.) },
+            grx::TextVertex { position: Vec2::new(1.,  0.), texcoords: Vec2::new(1., 0.) },
+            grx::TextVertex { position: Vec2::new(0.,  0.), texcoords: Vec2::new(0., 0.) },
+            grx::TextVertex { position: Vec2::new(0., -1.), texcoords: Vec2::new(0., 1.) },
+            grx::TextVertex { position: Vec2::new(1., -1.), texcoords: Vec2::new(1., 1.) },
+            grx::TextVertex { position: Vec2::new(1.,  0.), texcoords: Vec2::new(1., 0.) },
         ];
         let gl_topology = gl::TRIANGLES;
         let vao = gx::Vao::new();

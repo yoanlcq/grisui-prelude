@@ -7,17 +7,54 @@ use std::ptr;
 use std::mem;
 use std::slice;
 use std::mem::ManuallyDrop;
+use std::ops::Index;
 use v::{Vec2, Extent2, Aabr};
 use freetype_sys as ft;
 use self::ft::*;
 use gx;
 use grx;
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum FontName {
+    Basis33,
+    Petita,
+}
+
+impl From<FontName> for grx::TextureUnit {
+    fn from(f: FontName) -> Self {
+        match f {
+            FontName::Basis33 => grx::TextureUnit::Basis33,
+            FontName::Petita => grx::TextureUnit::Petita,
+        }
+    }
+}
+
+impl FontName {
+    pub fn try_from_texture_unit(u: grx::TextureUnit) -> Option<Self> {
+        match u {
+            grx::TextureUnit::Basis33 => Some(FontName::Basis33),
+            grx::TextureUnit::Petita => Some(FontName::Petita),
+        }
+    }
+}
+
+
 #[derive(Debug)]
 pub struct Fonts {
     pub ft: FT_Library,
     pub basis33: ManuallyDrop<Font>,
     pub petita: ManuallyDrop<Font>,
+}
+
+impl Index<FontName> for Fonts {
+    type Output = Font;
+    fn index(&self, i: FontName) -> &Font {
+        match i {
+            FontName::Basis33 => &self.basis33,
+            FontName::Petita => &self.petita,
+            // _ => panic!("No such font: {:?}", i),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -27,15 +64,19 @@ pub struct Font {
     pub texture_unit: grx::TextureUnit,
     pub texture_size: Extent2<usize>,
     pub glyph_info: HashMap<char, GlyphInfo>,
+    pub height: u16,
 }
 
 // NOTE: We store a lot of them, so I prefer to use u16 here.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct GlyphInfo {
     // NOTE: Y axis goes downwards!
-    pub coords: Aabr<u16>,
-    pub offset: Vec2<u16>,
-    pub x_advance: u16,
+    pub bounds: Aabr<u16>,
+    // Horizontal position relative to the cursor, in pixels.
+    // Vertical position relative to the baseline, in pixels.
+    pub offset: Vec2<i16>,
+    // How far to move the cursor for the next character.
+    pub advance: Vec2<i16>,
 }
 
 impl Drop for Fonts {
@@ -64,7 +105,7 @@ impl Font {
         font_size: u32,
         chars: &str,
         texture_unit: grx::TextureUnit,
-        tex_side: usize,
+        tex_size: usize,
     ) -> Result<Self, String> 
     {
         let mut face: FT_Face = unsafe { mem::uninitialized() };
@@ -77,11 +118,13 @@ impl Font {
             FT_Set_Pixel_Sizes(face, 0, font_size as _);
         }
 
+        let metrics = unsafe { &(*(*face).size).metrics };
+
         // Partly taken from https://gist.github.com/baines/b0f9e4be04ba4e6f56cab82eef5008ff
 
-        assert!(tex_side.is_power_of_two());
-        let tex_size = Extent2::new(tex_side, tex_side);
-        let mut pixels: Vec<u8> = Vec::with_capacity(tex_size.w * tex_size.h);
+        assert!(tex_size.is_power_of_two());
+        let tex_size = Extent2::broadcast(tex_size);
+        let mut pixels = Vec::<u8>::with_capacity(tex_size.w * tex_size.h);
         unsafe {
             ptr::write_bytes(pixels.as_mut_ptr(), 0, tex_size.w * tex_size.h);
             pixels.set_len(tex_size.w * tex_size.h);
@@ -91,6 +134,7 @@ impl Font {
 
         for c in chars.chars() {
             if unsafe { FT_Load_Char(face, c as u64, FT_LOAD_RENDER) } != 0 {
+                unsafe { FT_Done_Face(face); }
                 return Err(format!("Could not load character '{}'", c));
             }
             let g = unsafe { &*(*face).glyph };
@@ -98,14 +142,14 @@ impl Font {
             let bmp_buffer = unsafe {
                 slice::from_raw_parts(bmp.buffer, (bmp.rows*bmp.pitch) as usize)
             };
-            let metrics = unsafe { &(*(*face).size).metrics };
 
-            if pen.y + (metrics.height >> 6) as usize + 1 >= tex_size.h {
+            if pen.y + (metrics.height / 64) as usize + 1 >= tex_size.h {
+                unsafe { FT_Done_Face(face); }
                 panic!("Couldn't create font atlas for `{}`: {}x{} is not large enough!", path.display(), tex_size.w, tex_size.h);
             }
             if pen.x + bmp.width as usize >= tex_size.w {
                 pen.x = 0;
-                pen.y += (metrics.height >> 6) as usize + 1;
+                pen.y += (metrics.height / 64) as usize + 1;
             }
 
             for row in 0..(bmp.rows as usize) {
@@ -116,14 +160,15 @@ impl Font {
                 }
             }
 
-            let old = glyph_info.insert(c, GlyphInfo {
-                coords: Aabr {
-                    min: pen.map(|x| x as u16),
-                    max: (pen + Vec2::new(bmp.width as _, bmp.rows as _)).map(|x| x as u16),
+            let gi = GlyphInfo {
+                bounds: Aabr {
+                    min: pen.map(|x| x as _),
+                    max: (pen + Vec2::new(bmp.width as _, bmp.rows as _)).map(|x| x as _),
                 },
                 offset: Vec2::new(g.bitmap_left as _, g.bitmap_top as _),
-                x_advance: (g.advance.x >> 6) as u16,
-            });
+                advance: Vec2::new(g.advance.x, g.advance.y).map(|x| (x / 64) as _),
+            };
+            let old = glyph_info.insert(c, gi);
             assert!(old.is_none());
 
             pen.x += bmp.width as usize + 1;
@@ -135,7 +180,10 @@ impl Font {
             params_i: gx::TextureParamsI::new_clamp_to_edge_linear(),
             do_generate_mipmaps: false,
         });
-        Ok(Self { face, texture, texture_unit, glyph_info, texture_size: tex_size })
+        Ok(Self {
+            face, texture, texture_unit,
+            glyph_info, texture_size: tex_size, height: (metrics.height / 64) as _
+        })
     }
 }
 
@@ -159,10 +207,11 @@ impl Fonts {
                 }
             },
         };
-        // 33 to 126
         let chars = {
-            let mut chars = String::new();
-            // All printable ASCII chars
+            // Do include space. We only care about its GlyphInfo, so it shouldn't
+            // have its place in the atlas, but: deadlines!!
+            let mut chars = " ".to_string();
+            // All printable ASCII chars...
             for i in 33_u8..127_u8 {
                 chars.push(i as char);
             }

@@ -4,9 +4,10 @@ use v::{Rgb, Transform, Vec2, Extent2, Rect, Lerp, Mat4, Vec3, Rgba};
 use sdl2::event::{Event, WindowEvent};
 use camera::OrthographicCamera;
 use gl;
-use global::GlobalDataUpdatePack;
+use global::{Global, GlobalDataUpdatePack};
 use duration_ext::DurationExt;
 use grx;
+use fonts::{Font, FontName};
 
 #[derive(Debug)]
 pub struct Scene {
@@ -139,25 +140,13 @@ impl Scene {
             unsafe {
                 gl::Viewport(x as _, y as _, w as _, h as _);
             }
+
+            // Render all meshes
+
             frame.g.gl_simple_color_program.use_program(&Mat4::identity());
             for (mesh_eid, mesh_id) in self.meshes.iter() {
                 let mesh = frame.g.meshes[*mesh_id].as_ref().unwrap();
                 let mesh_xform = self.transforms[mesh_eid].render;
-                /*
-                 * // NOTE: Code to follow mouse
-                let mesh_xform = {
-                    let mut xform = Transform::default();
-                    let mut mousepos = frame.g.input.mouse.position.map(|x| x as f32);
-                    mousepos.y = frame.g.viewport_size.h as f32 - mousepos.y;
-                    xform.position = camera.viewport_to_world_point(
-                        camera_xform, mousepos.into()
-                    );
-                    xform.orientation.rotate_z(frame.frame_i as f32 / 20.);
-                    xform.position.z = 1.;
-                    xform.scale /= 24.;
-                    xform
-                };
-                */
                 let model = Mat4::from(mesh_xform);
                 let mvp = proj * view * model;
                 frame.g.gl_simple_color_program.set_uniform_mvp(&mvp);
@@ -166,16 +155,101 @@ impl Scene {
                     gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
                 }
             }
-            let t = frame.t.to_f64_seconds() as f32;
-            let model = Mat4::scaling_3d(256./(800./2.)).translated_3d(Vec3::unit_x()*((t*4.).round()/(800./2.)));
-            let mvp = proj * view * model;
-            frame.g.gl_text_program.use_program(&mvp, grx::TextureUnit::Basis33, Rgba::black());
-            let mesh = &frame.g.font_atlas_mesh;
-            mesh.vao.bind();
+
+            // Render text overlay
+
             unsafe {
-                gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
+                gl::Disable(gl::DEPTH_TEST);
+            }
+            let prog = &frame.g.gl_text_program;
+            let mesh = &frame.g.font_atlas_mesh;
+            prog.use_program();
+            mesh.vao.bind();
+            let render_font_atlas = |font: &Font, texunit: grx::TextureUnit, color: Rgba<f32>| {
+                let vp = frame.g.viewport_size.map(|x| x as f32);
+                let atlas_size = font.texture_size.map(|x| x as f32);
+                let model = Mat4::scaling_3d(2. * atlas_size.w/vp.w);
+                let mvp = proj * view * model;
+                prog.set_uniform_texture(texunit);
+                prog.set_uniform_color(color);
+                prog.set_uniform_mvp(&mvp);
+                prog.set_uniform_glyph_rect_pos(Vec2::zero());
+                prog.set_uniform_glyph_rect_size(Extent2::one());
+                prog.set_uniform_glyph_offset(Vec2::zero());
+                unsafe {
+                    gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
+                }
+            };
+            let render_some_text = |text: &str, font: &Font, texunit: grx::TextureUnit, color: Rgba<f32>| {
+                let vp = frame.g.viewport_size.map(|x| x as f32);
+                let atlas_size = font.texture_size.map(|x| x as f32);
+                prog.set_uniform_texture(texunit);
+                prog.set_uniform_color(color);
+                let mut adv = Vec2::<i16>::zero();
+
+                for c in text.chars() {
+                    match c {
+                        '\n' => {
+                            adv.x = 0;
+                            adv.y += font.height as i16;
+                            continue;
+                        },
+                        ' ' => {
+                            adv += font.glyph_info[&' '].advance;
+                            continue;
+                        },
+                        '\t' => {
+                            adv += font.glyph_info[&' '].advance * 4;
+                            continue;
+                        },
+                        c if c.is_ascii_control() || c.is_ascii_whitespace() => {
+                            continue;
+                        },
+                        _ => (),
+                    };
+                    let glyph = &font.glyph_info[&c];
+                    let mut rect = glyph.bounds.into_rect().map(
+                        |p| p as f32,
+                        |e| e as f32
+                    );
+                    rect.x /= atlas_size.w;
+                    rect.y /= atlas_size.h;
+                    rect.w /= atlas_size.w;
+                    rect.h /= atlas_size.h;
+                    let offset = glyph.offset.map(|x| x as f32) / Vec2::from(atlas_size);
+                    prog.set_uniform_glyph_rect_pos(rect.position());
+                    prog.set_uniform_glyph_rect_size(rect.extent());
+                    prog.set_uniform_glyph_offset(offset);
+                    let mut world_adv = adv.map(|x| x as f32) * 2. / vp.w;
+                    world_adv.y = -world_adv.y;
+                    let model = Mat4::scaling_3d(2. * atlas_size.w/vp.w)
+                        .translated_3d(world_adv);
+                    let mvp = proj * view * model;
+                    prog.set_uniform_mvp(&mvp);
+                    unsafe {
+                        gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
+                    }
+                    adv += glyph.advance;
+                }
+            };
+            // render_font_atlas(&frame.g.fonts[fontname], fontname.into(), Rgba::black());
+
+            let text = "This is some SAMPLE TEXT!!1!11\n\t(Glad that it works.) 0123456789@$";
+            let fontname = FontName::Basis33;
+            render_some_text(text, &frame.g.fonts[fontname], fontname.into(), Rgba::blue());
+            let fontname = FontName::Petita;
+            render_some_text(text, &frame.g.fonts[fontname], fontname.into(), Rgba::red());
+            unsafe {
+                gl::Enable(gl::DEPTH_TEST);
             }
         }
+    }
+
+    #[allow(dead_code)]
+    fn mouse_world_pos(g: &Global, camera: &OrthographicCamera, camera_xform: &Transform<f32,f32,f32>) -> Vec3<f32> {
+        let mut mousepos = g.input.mouse.position.map(|x| x as f32);
+        mousepos.y = g.viewport_size.h as f32 - mousepos.y;
+        camera.viewport_to_world_point(camera_xform, mousepos.into())
     }
 
     pub fn new_test_room(viewport: Rect<u32, u32>) -> Self {
