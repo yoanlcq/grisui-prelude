@@ -3,9 +3,9 @@ use v::{
     Rect,
     Vec2,
     Vec3,
-    Transform,
     FrustumPlanes,
 };
+use transform::Transform3D;
 use transform_ext::TransformExt;
 
 
@@ -37,24 +37,31 @@ macro_rules! impl_camera {
             pub fn aspect_ratio(&self) -> f32 {
                 (self.viewport.w as f32) / (self.viewport.h as f32)
             }
-            pub fn view_matrix(&self, xform: &Transform<f32, f32, f32>) -> Mat4<f32> {
+            pub fn view_matrix(&self, xform: &Transform3D) -> Mat4<f32> {
                 Mat4::look_at(
                     xform.position, 
                     xform.position + xform.forward_lh(),
                     Vec3::unit_y()
                 )
             }
-            pub fn view_proj_matrix(&self, xform: &Transform<f32,f32,f32>) -> Mat4<f32> {
+            pub fn view_proj_matrix(&self, xform: &Transform3D) -> Mat4<f32> {
                 self.proj_matrix() * self.view_matrix(xform)
             }
-            pub fn viewport_to_world_point(&self, xform: &Transform<f32,f32,f32>, p: Vec3<f32>) -> Vec3<f32> {
+            pub fn world_to_viewport_point(&self, xform: &Transform3D, p: Vec3<f32>) -> Vec3<f32> {
+                Mat4::world_to_viewport_no(
+                    p, 
+                    self.view_matrix(xform), self.proj_matrix(),
+                    self.viewport.map(|p| p as f32, |e| e as f32)
+                ).into()
+            }
+            pub fn viewport_to_world_point(&self, xform: &Transform3D, p: Vec3<f32>) -> Vec3<f32> {
                 Mat4::viewport_to_world_no(
                     p, 
                     self.view_matrix(xform), self.proj_matrix(),
                     self.viewport.map(|p| p as f32, |e| e as f32)
                 ).into()
             }
-            pub fn viewport_to_world_ray(&self, xform: &Transform<f32,f32,f32>, p: Vec2<f32>) -> Ray<f32> {
+            pub fn viewport_to_world_ray(&self, xform: &Transform3D, p: Vec2<f32>) -> Ray<f32> {
                 let p1 = self.viewport_to_world_point(xform, Vec3::new(p.x, p.y, 0.));
                 let p2 = self.viewport_to_world_point(xform, Vec3::new(p.x, p.y, 1.));
                 Ray {

@@ -54,7 +54,7 @@ pub struct Global {
     pub save_id: SaveID,
     // Current state, ctd.
     pub input: Input,
-    pub viewport_size: Extent2<u32>,
+    pub window_size: Extent2<u32>,
 }
 
 
@@ -84,9 +84,28 @@ fn setup_panic_hook() {
             msg += "<unknown reason>";
         }
 
+        error!("{}", &msg);
+
+        info!("Backtrace:");
+        ::backtrace::trace(|frame| {
+            let ip = frame.ip();
+            let _symbol_address = frame.symbol_address();
+
+            ::backtrace::resolve(ip, |symbol| {
+                let what = || "??".to_owned();
+                let filename = if let Some(filename) = symbol.filename() { format!("{}", filename.display()) } else { what() };
+                let lineno = if let Some(lineno) = symbol.lineno() { format!("{}", lineno) } else { what() };
+                let addr = if let Some(addr) = symbol.addr() { format!("0x{:8x}", addr as usize) } else { what() };
+                let name = if let Some(name) = symbol.name() { format!("{}", name) } else { what() };
+                // ^ NOTE: Do use the Display implementation for name. It demangles the symbol.
+                info!("{}:{}: ({}) {}", &filename, &lineno, &addr, name);
+            });
+
+            true // keep going to the next frame
+        });
+
         use sdl2::messagebox;
         let flags = messagebox::MESSAGEBOX_ERROR;
-        error!("{}", &msg);
         let result = messagebox::show_simple_message_box(
             flags, "Fatal error", &msg, None
         );
@@ -315,7 +334,7 @@ impl Default for Global {
 
         let other_scenes = SceneIDRealm::new_empty();
 
-        let viewport_size = Extent2::from(window.drawable_size());
+        let window_size = Extent2::from(window.drawable_size());
 
         let mut g = Self {
             path_to_res, path_to_saves,
@@ -335,9 +354,9 @@ impl Default for Global {
 
             save_id,
             input,
-            viewport_size,
+            window_size,
         };
-        g.reshape(viewport_size);
+        g.reshape(window_size);
         g
     }
 }
@@ -372,7 +391,7 @@ impl_debug_for_global!{
 
         save_id,
         input,
-        viewport_size,
+        window_size,
     }
 }
 
@@ -392,8 +411,8 @@ impl Global {
             _ => (),
         };
     }
-    pub fn reshape(&mut self, viewport_size: Extent2<u32>) {
-        self.viewport_size = viewport_size;
+    pub fn reshape(&mut self, window_size: Extent2<u32>) {
+        self.window_size = window_size;
     }
 
     pub fn replace_previous_state_by_current(&mut self) {

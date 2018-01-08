@@ -1,11 +1,11 @@
 // TODO:
-// - Display arbitrary text with FreeType;
 // - Play some sounds with OpenAL;
+// - Play music continusouly across loadings;
 // - Create the Bézier path editor;
 // - Load resource files, as well as async ones. Async resource manager if you will.
 //
 // Minor:
-// - It bugs me to type Transfor<f32,f32,f32> every time;
+// - It bugs me to type Transform<f32,f32,f32> every time;
 //
 // WONTFIX:
 // - Mouse position at the beginning: SDL_GetMouseState() just doesn't work.
@@ -13,6 +13,8 @@
 // - FTP for assets:
 //   Use the Git repo first, then see if we reach the limit.
 //   If so, move the repo to a new one and start using ftp.
+// - How to render Debug text last so it is drawn over other kinds of text ?
+//   Just don't care for now.
 
 // #![allow(unused_imports)]
 
@@ -32,6 +34,7 @@ extern crate log;
 extern crate env_logger;
 #[macro_use]
 extern crate id_realm;
+extern crate backtrace;
 
 pub mod v {
     extern crate vek;
@@ -65,6 +68,7 @@ pub mod lazy;
 pub mod mesh;
 pub mod save;
 pub mod scene;
+pub mod transform;
 pub mod transform_ext;
 
 // NOTE: The main loop is messy as hell, because it is inhabited by :
@@ -84,7 +88,7 @@ fn main() {
     info!("Initializing...");
     let mut g = Global::default();
     info!("Loading test room scene...");
-    let mut scene = Scene::new_test_room(Rect::from((Vec2::zero(), g.viewport_size)));
+    let mut scene = Scene::new_test_room(Rect::from((Vec2::zero(), g.window_size)));
 
     let mut frame_i = 0_u64;
     let recommended_refresh_rate = g.window.display_mode().unwrap().refresh_rate;

@@ -1,22 +1,37 @@
 use std::ops::{Index, IndexMut};
 use ids::*;
-use v::{Rgb, Transform, Vec2, Extent2, Rect, Lerp, Mat4, Vec3, Rgba};
+use v::{Rgb, Vec2, Extent2, Rect, Lerp, Mat4, Vec3, Rgba};
+use transform::Transform3D;
 use sdl2::event::{Event, WindowEvent};
 use camera::OrthographicCamera;
 use gl;
 use global::{Global, GlobalDataUpdatePack};
 use duration_ext::DurationExt;
 use grx;
-use fonts::{Font};
+use fonts::{Font, FontName};
+
+#[derive(Debug)]
+pub struct GUIText {
+    /// If the entity has a Transform component, then this member is
+    /// a screen-space offset for the text.
+    /// If it doesn't, this member is the absolute position of the text
+    /// in screen space.
+    pub screen_space_offset: Vec2<i32>,
+    pub text: String,
+    pub font: FontName,
+    pub color: Rgba<f32>,
+    pub shadow_hack: Option<Rgba<f32>>,
+}
 
 #[derive(Debug)]
 pub struct Scene {
     pub allows_quitting: bool,
     pub clear_color: Rgb<u8>,
     pub entity_id_domain: EntityIDDomain,
-    pub transforms: EntityIDMap<SimStates<Transform<f32,f32,f32>>>,
+    pub transforms: EntityIDMap<SimStates<Transform3D>>,
     pub cameras: EntityIDMap<SimStates<OrthographicCamera>>,
     pub meshes: EntityIDMap<MeshID>,
+    pub texts: EntityIDMap<GUIText>,
 }
 
 #[repr(C)]
@@ -96,10 +111,10 @@ impl Scene {
             _ => (),
         };
     }
-    pub fn reshape(&mut self, viewport_size: Extent2<u32>) {
+    pub fn reshape(&mut self, window_size: Extent2<u32>) {
         for camera in self.cameras.values_mut() {
             // NOTE: Every camera might want to handle this differently
-            let vp = Rect::from((Vec2::zero(), viewport_size));
+            let vp = Rect::from((Vec2::zero(), window_size));
             camera.for_states(|s| s.viewport = vp);
         }
     }
@@ -132,6 +147,7 @@ impl Scene {
         info!("{}{}", &head, if cpts.is_empty() { "None at all!" } else { &cpts });
     }
     pub fn render(&mut self, frame: GlobalDataUpdatePack) {
+        let g = &frame.g;
         for (camera_eid, camera) in self.cameras.iter().map(|(id, c)| (id, &c.render)) {
             let camera_xform = &self.transforms[camera_eid].render;
             let view = camera.view_matrix(camera_xform);
@@ -143,13 +159,13 @@ impl Scene {
 
             // Render all meshes
 
-            frame.g.gl_simple_color_program.use_program(&Mat4::identity());
+            g.gl_simple_color_program.use_program(&Mat4::identity());
             for (mesh_eid, mesh_id) in self.meshes.iter() {
-                let mesh = frame.g.meshes[*mesh_id].as_ref().unwrap();
+                let mesh = g.meshes[*mesh_id].as_ref().unwrap();
                 let mesh_xform = self.transforms[mesh_eid].render;
                 let model = Mat4::from(mesh_xform);
                 let mvp = proj * view * model;
-                frame.g.gl_simple_color_program.set_uniform_mvp(&mvp);
+                g.gl_simple_color_program.set_uniform_mvp(&mvp);
                 mesh.vao.bind();
                 unsafe {
                     gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
@@ -158,23 +174,15 @@ impl Scene {
 
             // Render text overlay
 
-            // TODO: 
-            // - Fonts: Use HashMap
-            // Design:
-            // - TextComponent:
-            //   - Screen-space offset;
-            //   - if has transform component, use it. Otherwise treat screen-space offset as screen-space position.
-            //   - No depth test;
-            //   - Debug is always rendered first;
             unsafe {
                 gl::Disable(gl::DEPTH_TEST);
             }
-            let prog = &frame.g.gl_text_program;
-            let mesh = &frame.g.font_atlas_mesh;
+            let prog = &g.gl_text_program;
+            let mesh = &g.font_atlas_mesh;
             prog.use_program();
             mesh.vao.bind();
-            let render_font_atlas = |font: &Font, texunit: grx::TextureUnit, color: Rgba<f32>| {
-                let vp = frame.g.viewport_size.map(|x| x as f32);
+            let _render_font_atlas = |font: &Font, texunit: grx::TextureUnit, color: Rgba<f32>| {
+                let vp = g.window_size.map(|x| x as f32);
                 let atlas_size = font.texture_size.map(|x| x as f32);
                 let model = Mat4::scaling_3d(2. * atlas_size.w/vp.w);
                 let mvp = proj * view * model;
@@ -188,11 +196,12 @@ impl Scene {
                     gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
                 }
             };
-            let render_some_text = |text: &str, font: &Font, texunit: grx::TextureUnit, color: Rgba<f32>| {
-                let vp = frame.g.viewport_size.map(|x| x as f32);
+            let render_some_text = |ss_pos: Vec2<i32>, text: &str, font: &Font, texunit: grx::TextureUnit, color: Rgba<f32>| {
+                let vp = g.window_size.map(|x| x as f32);
                 let atlas_size = font.texture_size.map(|x| x as f32);
                 prog.set_uniform_texture(texunit);
                 prog.set_uniform_color(color);
+                let world_start = Self::window_to_world(ss_pos, g, camera, camera_xform);
                 let mut adv = Vec2::<i16>::zero();
 
                 for c in text.chars() {
@@ -215,6 +224,7 @@ impl Scene {
                         },
                         _ => (),
                     };
+                    let c = if font.glyph_info.contains_key(&c) { c } else { '?' };
                     let glyph = &font.glyph_info[&c];
                     let mut rect = glyph.bounds.into_rect().map(
                         |p| p as f32,
@@ -231,7 +241,7 @@ impl Scene {
                     let mut world_adv = adv.map(|x| x as f32) * 2. / vp.w;
                     world_adv.y = -world_adv.y;
                     let model = Mat4::scaling_3d(2. * atlas_size.w/vp.w)
-                        .translated_3d(world_adv);
+                        .translated_3d(world_start + world_adv);
                     let mvp = proj * view * model;
                     prog.set_uniform_mvp(&mvp);
                     unsafe {
@@ -240,28 +250,58 @@ impl Scene {
                     adv += glyph.advance;
                 }
             };
-            // render_font_atlas(&frame.g.fonts[fontname], fontname.into(), Rgba::black());
 
-            info!("New text rendering");
+            for (text_eid, text) in self.texts.iter() {
+                let &GUIText {
+                    ref screen_space_offset, ref text, ref font, ref color,
+                    ref shadow_hack,
+                } = text;
+                let mut ss_pos = *screen_space_offset;
+                if let Some(xform) = self.transforms.get(text_eid) {
+                    ss_pos += Self::world_to_window(xform.render.position, g, camera, camera_xform);
+                }
+                let texunit = grx::TextureUnit::from(*font);
+                let font = &g.fonts.fonts[font];
+                if let &Some(ref color) = shadow_hack {
+                    let ss_pos = ss_pos + 1;
+                    render_some_text(ss_pos, text, font, texunit, *color);
+                }
+                render_some_text(ss_pos, text, font, texunit, *color);
+            }
+            let fontname = FontName::Debug;
+            let font = &g.fonts.fonts[&fontname];
+            let texunit = grx::TextureUnit::from(fontname);
+            let text = format!("{}\n{}", g.input.mouse.position, Vec2::<f32>::from(Self::mouse_world_pos(g, camera, camera_xform)));
+            render_some_text(g.input.mouse.position.map(|x| x as i32), &text, font, texunit, Rgba::black());
+
+            /*
             let text = "This is some SAMPLE TEXT!!1!11\n\t(Glad that it works.) 0123456789@$";
-            for (fontname, font) in frame.g.fonts.fonts.iter() {
-                // FIXME: How to render Debug last ??
-                info!("Rendering {:?}", fontname);
+            for (fontname, font) in g.fonts.fonts.iter() {
                 let texunit = grx::TextureUnit::from(*fontname);
                 render_font_atlas(font, texunit, Rgba::red());
                 render_some_text(text, font, texunit, Rgba::blue());
             }
+            */
             unsafe {
                 gl::Enable(gl::DEPTH_TEST);
             }
         }
     }
 
-    #[allow(dead_code)]
-    fn mouse_world_pos(g: &Global, camera: &OrthographicCamera, camera_xform: &Transform<f32,f32,f32>) -> Vec3<f32> {
-        let mut mousepos = g.input.mouse.position.map(|x| x as f32);
-        mousepos.y = g.viewport_size.h as f32 - mousepos.y;
-        camera.viewport_to_world_point(camera_xform, mousepos.into())
+    pub fn world_to_window(p: Vec3<f32>, g: &Global, camera: &OrthographicCamera, camera_xform: &Transform3D) -> Vec2<i32> {
+        let mut p = camera.world_to_viewport_point(camera_xform, p).map(|p| p.round() as i32);
+        p.y = g.window_size.h as i32 - p.y;
+        p.into()
+    }
+
+    pub fn window_to_world(p: Vec2<i32>, g: &Global, camera: &OrthographicCamera, camera_xform: &Transform3D) -> Vec3<f32> {
+        let mut p = p.map(|p| p as f32);
+        p.y = g.window_size.h as f32 - p.y;
+        camera.viewport_to_world_point(camera_xform, Vec3::from(p))
+    }
+
+    pub fn mouse_world_pos(g: &Global, camera: &OrthographicCamera, camera_xform: &Transform3D) -> Vec3<f32> {
+        Self::window_to_world(g.input.mouse.position.map(|x| x as i32), g, camera, camera_xform)
     }
 
     pub fn new_test_room(viewport: Rect<u32, u32>) -> Self {
@@ -270,14 +310,17 @@ impl Scene {
         let mut meshes = EntityIDMap::with_capacity_and_hasher(1, hasher_builder);
         let mut transforms = EntityIDMap::with_capacity_and_hasher(2, hasher_builder);
         let mut cameras = EntityIDMap::with_capacity_and_hasher(1, hasher_builder);
+        let mut texts = EntityIDMap::with_capacity_and_hasher(1, hasher_builder);
 
         let camera_id = EntityID::from_raw(0);
         let quad_id = EntityID::from_raw(1);
+        let inspector_id = EntityID::from_raw(2);
         entity_id_domain.include_id(camera_id);
         entity_id_domain.include_id(quad_id);
+        entity_id_domain.include_id(inspector_id);
 
         let near = 0.01_f32;
-        transforms.insert(camera_id, Transform {
+        transforms.insert(camera_id, Transform3D {
             position: Vec3::back_lh() * (near + 0.001_f32),
             .. Default::default()
         }.into());
@@ -286,16 +329,24 @@ impl Scene {
         }.into());
 
         transforms.insert(quad_id, {
-            let mut xform = Transform::default();
+            let mut xform = Transform3D::default();
             xform.position.z = 1.;
             xform.scale /= 20.;
             xform.into()
         });
         meshes.insert(quad_id, MeshID::from_raw(0));
 
+        texts.insert(inspector_id, GUIText {
+            screen_space_offset: Vec2::new(0, 16),
+            text: "Hello! I'm Foo!!".to_string(),
+            font: FontName::Debug,
+            color: Rgba::blue(),
+            shadow_hack: Some(Rgba::red()),
+        });
+
         let slf = Self {
             entity_id_domain,
-            meshes, transforms, cameras,
+            meshes, transforms, cameras, texts,
             allows_quitting: true,
             clear_color: Rgb::cyan(),
         };
