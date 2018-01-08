@@ -7,8 +7,8 @@ use v::{Mat4, Vec2, Vec3, Rgba, Extent2};
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum TextureUnit {
-    Basis33 = 1,
-    Petita = 2,
+    DebugFontAtlas = 1,
+    TalkFontAtlas = 2,
 }
 
 pub fn set_active_texture(i: TextureUnit) {
@@ -214,7 +214,7 @@ void main() {
     pub fn use_program(&self) {
         self.program.use_program();
         self.set_uniform_mvp(&Mat4::identity());
-        self.set_uniform_texture(TextureUnit::Basis33);
+        self.set_uniform_texture(TextureUnit::DebugFontAtlas);
         self.set_uniform_color(Rgba::magenta());
         self.set_uniform_glyph_rect_pos(Vec2::zero());
         self.set_uniform_glyph_rect_size(Extent2::one());

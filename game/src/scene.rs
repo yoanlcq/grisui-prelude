@@ -7,7 +7,7 @@ use gl;
 use global::{Global, GlobalDataUpdatePack};
 use duration_ext::DurationExt;
 use grx;
-use fonts::{Font, FontName};
+use fonts::{Font};
 
 #[derive(Debug)]
 pub struct Scene {
@@ -159,10 +159,13 @@ impl Scene {
             // Render text overlay
 
             // TODO: 
-            // - Which space ? Screen-space or world-space ?
-            // - Depth test or not ??
-            // - Centered text ?
-            // - Maximum text region width ? (overflow: wrap ?)
+            // - Fonts: Use HashMap
+            // Design:
+            // - TextComponent:
+            //   - Screen-space offset;
+            //   - if has transform component, use it. Otherwise treat screen-space offset as screen-space position.
+            //   - No depth test;
+            //   - Debug is always rendered first;
             unsafe {
                 gl::Disable(gl::DEPTH_TEST);
             }
@@ -239,11 +242,15 @@ impl Scene {
             };
             // render_font_atlas(&frame.g.fonts[fontname], fontname.into(), Rgba::black());
 
+            info!("New text rendering");
             let text = "This is some SAMPLE TEXT!!1!11\n\t(Glad that it works.) 0123456789@$";
-            let fontname = FontName::Basis33;
-            render_some_text(text, &frame.g.fonts[fontname], fontname.into(), Rgba::blue());
-            let fontname = FontName::Petita;
-            render_some_text(text, &frame.g.fonts[fontname], fontname.into(), Rgba::red());
+            for (fontname, font) in frame.g.fonts.fonts.iter() {
+                // FIXME: How to render Debug last ??
+                info!("Rendering {:?}", fontname);
+                let texunit = grx::TextureUnit::from(*fontname);
+                render_font_atlas(font, texunit, Rgba::red());
+                render_some_text(text, font, texunit, Rgba::blue());
+            }
             unsafe {
                 gl::Enable(gl::DEPTH_TEST);
             }

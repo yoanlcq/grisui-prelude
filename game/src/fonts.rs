@@ -7,7 +7,6 @@ use std::ptr;
 use std::mem;
 use std::slice;
 use std::mem::ManuallyDrop;
-use std::ops::Index;
 use v::{Vec2, Extent2, Aabr};
 use freetype_sys as ft;
 use self::ft::*;
@@ -16,45 +15,14 @@ use grx;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum FontName {
-    Basis33,
-    Petita,
+    Debug,
+    Talk,
 }
-
-impl From<FontName> for grx::TextureUnit {
-    fn from(f: FontName) -> Self {
-        match f {
-            FontName::Basis33 => grx::TextureUnit::Basis33,
-            FontName::Petita => grx::TextureUnit::Petita,
-        }
-    }
-}
-
-impl FontName {
-    pub fn try_from_texture_unit(u: grx::TextureUnit) -> Option<Self> {
-        match u {
-            grx::TextureUnit::Basis33 => Some(FontName::Basis33),
-            grx::TextureUnit::Petita => Some(FontName::Petita),
-        }
-    }
-}
-
 
 #[derive(Debug)]
 pub struct Fonts {
     pub ft: FT_Library,
-    pub basis33: ManuallyDrop<Font>,
-    pub petita: ManuallyDrop<Font>,
-}
-
-impl Index<FontName> for Fonts {
-    type Output = Font;
-    fn index(&self, i: FontName) -> &Font {
-        match i {
-            FontName::Basis33 => &self.basis33,
-            FontName::Petita => &self.petita,
-            // _ => panic!("No such font: {:?}", i),
-        }
-    }
+    pub fonts: ManuallyDrop<HashMap<FontName, Font>>,
 }
 
 #[derive(Debug)]
@@ -63,8 +31,8 @@ pub struct Font {
     pub texture: gx::Texture2D,
     pub texture_unit: grx::TextureUnit,
     pub texture_size: Extent2<usize>,
-    pub glyph_info: HashMap<char, GlyphInfo>,
     pub height: u16,
+    pub glyph_info: HashMap<char, GlyphInfo>,
 }
 
 // NOTE: We store a lot of them, so I prefer to use u16 here.
@@ -81,11 +49,9 @@ pub struct GlyphInfo {
 
 impl Drop for Fonts {
     fn drop(&mut self) {
-        let &mut Self { ref mut basis33, ref mut petita, ref mut ft } = self;
         unsafe {
-            ManuallyDrop::drop(basis33);
-            ManuallyDrop::drop(petita);
-            FT_Done_FreeType(*ft);
+            ManuallyDrop::drop(&mut self.fonts);
+            FT_Done_FreeType(self.ft);
         }
     }
 }
@@ -94,6 +60,26 @@ impl Drop for Font {
     fn drop(&mut self) {
         unsafe {
             FT_Done_Face(self.face);
+        }
+    }
+}
+
+
+
+impl From<FontName> for grx::TextureUnit {
+    fn from(f: FontName) -> Self {
+        match f {
+            FontName::Debug => grx::TextureUnit::DebugFontAtlas,
+            FontName::Talk => grx::TextureUnit::TalkFontAtlas,
+        }
+    }
+}
+
+impl FontName {
+    pub fn try_from_texture_unit(u: grx::TextureUnit) -> Option<Self> {
+        match u {
+            grx::TextureUnit::DebugFontAtlas => Some(FontName::Debug),
+            grx::TextureUnit::TalkFontAtlas => Some(FontName::Talk),
         }
     }
 }
@@ -207,31 +193,35 @@ impl Fonts {
                 }
             },
         };
-        let chars = {
-            // Do include space. We only care about its GlyphInfo, so it shouldn't
-            // have its place in the atlas, but: deadlines!!
-            let mut chars = " ".to_string();
-            // All printable ASCII chars...
-            for i in 33_u8..127_u8 {
-                chars.push(i as char);
-            }
-            // Hon hon hon Baguette Au Jambon
-            chars += "°éèçàù";
-            chars
+        let chars = Self::all_supported_chars();
+        let fonts = {
+            let mut load_font = |folder, file, size, texunit, texsize| {
+                let mut p = path.to_path_buf();
+                p.push(folder);
+                p.push(file);
+                Font::from_path(&mut ft, &p, size, &chars, texunit, texsize)
+            };
+            let basis33 = load_font("basis33", "basis33.ttf", 16, grx::TextureUnit::DebugFontAtlas, 256)?;
+            let petita = load_font("petita", "PetitaMedium.ttf", 22, grx::TextureUnit::TalkFontAtlas, 256)?;
+            let mut fonts = HashMap::new();
+            fonts.insert(FontName::Debug, basis33);
+            fonts.insert(FontName::Talk, petita);
+            fonts
         };
-        let basis33 = {
-            let mut p = path.to_path_buf();
-            p.push("basis33");
-            p.push("basis33.ttf");
-            ManuallyDrop::new(Font::from_path(&mut ft, &p, 16, &chars, grx::TextureUnit::Basis33, 256)?)
-        };
-        let petita = {
-            let mut p = path.to_path_buf();
-            p.push("petita");
-            p.push("PetitaMedium.ttf");
-            ManuallyDrop::new(Font::from_path(&mut ft, &p, 18, &chars, grx::TextureUnit::Petita, 256)?)
-        };
+        let fonts = ManuallyDrop::new(fonts);
 
-        Ok(Self { ft, basis33, petita })
+        Ok(Self { ft, fonts })
+    }
+    fn all_supported_chars() -> String {
+        // Do include space. We only care about its GlyphInfo, so it shouldn't
+        // have its place in the atlas, but: deadlines!!
+        let mut chars = " ".to_string();
+        // All printable ASCII chars...
+        for i in 33_u8..127_u8 {
+            chars.push(i as char);
+        }
+        // Hon hon hon Baguette Au Jambon
+        chars += "°éèçàù";
+        chars
     }
 }
