@@ -98,7 +98,7 @@ fn main() {
     let mut last_frame_time = current_time;
     let mut frame_accum = 0u64;
     let mut fps_limit = 0f64;
-    let fps_ceil = 60f64;
+    let fps_ceil = 200_f64; // If we go above that, there's a problem, and we should limit FPS manually.
     let fps_counter_interval = 1000f64; /* Should be in [100, 1000] */
 
     let mut tick_i = 0_u64;
