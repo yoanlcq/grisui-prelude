@@ -1,4 +1,6 @@
 // TODO:
+// - Stroke style for shapes;
+// - post-processing FX ?????
 // - Play some sounds with OpenAL;
 // - Play music continusouly across loadings;
 // - Create the Bézier path editor;
@@ -82,13 +84,12 @@ fn main() {
     use std::thread;
     use scene::Scene;
     use global::{Global, GlobalDataUpdatePack};
-    use v::{Rect, Vec2};
     use duration_ext::DurationExt;
 
     info!("Initializing...");
     let mut g = Global::default();
     info!("Loading test room scene...");
-    let mut scene = Scene::new_test_room(Rect::from((Vec2::zero(), g.window_size)));
+    let mut scene = Scene::new_test_room(&g);
 
     let mut frame_i = 0_u64;
     let recommended_refresh_rate = g.window.display_mode().unwrap().refresh_rate;

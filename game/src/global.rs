@@ -16,7 +16,7 @@ use alto::Alto;
 use gl;
 use gx;
 use grx;
-use v::{Rgb, Extent2};
+use v::{Rgb, Rgba, Extent2};
 use scene::Scene;
 use input::Input;
 use mesh::{Mesh, FontAtlasMesh};
@@ -308,8 +308,15 @@ impl Default for Global {
         );
 
         let mesh_resources = vec![
-            Lazy::Loaded(Mesh::new_unit_quad(
-                &gl_simple_color_program, "Lucky Quad", gx::UpdateHint::Occasionally
+            Lazy::Loaded(Mesh::new_colored_quad(
+                &gl_simple_color_program, "Lucky Quad", gx::UpdateHint::Occasionally,
+                Rgba::red(), Rgba::green(), Rgba::blue(), Rgba::yellow(), 0.5
+            )),
+            Lazy::Loaded(Mesh::new_unit_disk(
+                &gl_simple_color_program, "Red Disk", gx::UpdateHint::Occasionally, 3, Rgba::red()
+            )),
+            Lazy::Loaded(Mesh::new_unit_disk(
+                &gl_simple_color_program, "Blue Disk", gx::UpdateHint::Occasionally, 64, Rgba::blue()
             )),
         ];
         let meshes = MeshIDRealm::from_iterator(

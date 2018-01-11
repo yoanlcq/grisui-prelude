@@ -7,8 +7,37 @@ use camera::OrthographicCamera;
 use gl;
 use global::{Global, GlobalDataUpdatePack};
 use duration_ext::DurationExt;
+use gx;
 use grx;
 use fonts::{Font, FontName};
+use mesh::Mesh;
+
+
+#[derive(Debug)]
+pub struct Scene {
+    pub allows_quitting: bool,
+    pub clear_color: Rgb<u8>,
+    pub entity_id_domain: EntityIDDomain,
+    pub names: EntityIDMap<String>,
+    pub transforms: EntityIDMap<SimStates<Transform3D>>,
+    pub cameras: EntityIDMap<SimStates<OrthographicCamera>>,
+    pub meshes: EntityIDMap<MeshID>,
+    pub texts: EntityIDMap<GUIText>,
+    pub pathshapes: EntityIDMap<PathShape>,
+}
+
+#[derive(Debug)]
+pub struct PathShape {
+    /// Triangle fan which vertices contain the origin and each vertex
+    /// of a closed polygon.
+    /// Rendering it directly would result in a mess. Render it in the stencil
+    /// buffer instead with GL_INVERT in order to render a mask for the polygon.
+    pub polyfanmask_mesh: Mesh,
+    /// Simple screen-space quad mesh that should be drawn over the polygon mesh mask.
+    pub fill_color_quad: Mesh,
+    /// Set of local-space gradient strips.
+    pub fill_gradient_strips: Vec<Mesh>,
+}
 
 #[derive(Debug)]
 pub struct GUIText {
@@ -21,17 +50,6 @@ pub struct GUIText {
     pub font: FontName,
     pub color: Rgba<f32>,
     pub shadow_hack: Option<Rgba<f32>>,
-}
-
-#[derive(Debug)]
-pub struct Scene {
-    pub allows_quitting: bool,
-    pub clear_color: Rgb<u8>,
-    pub entity_id_domain: EntityIDDomain,
-    pub transforms: EntityIDMap<SimStates<Transform3D>>,
-    pub cameras: EntityIDMap<SimStates<OrthographicCamera>>,
-    pub meshes: EntityIDMap<MeshID>,
-    pub texts: EntityIDMap<GUIText>,
 }
 
 #[repr(C)]
@@ -95,6 +113,18 @@ impl<T> IndexMut<SimState> for SimStates<T> {
     }
 }
 
+/* NOTE: Stub for later
+impl GUIText {
+    pub fn text(&self) -> &str { &self.text }
+    pub fn edit_text<F>(&mut self, f: F) where F: FnMut<&mut String> {
+        f(&mut self.text);
+        unimplemented!{} // TODO: recompute extents
+    }
+    pub fn extent(&self) -> Extent2<u32> { unimplemented!{} }
+}
+*/
+
+
 
 impl Scene {
     pub fn handle_sdl2_event_before_new_tick(&mut self, event: &Event) {
@@ -126,11 +156,9 @@ impl Scene {
     pub fn integrate(&mut self, tick: GlobalDataUpdatePack) {
         use ::std::f32::consts::PI;
         let dt = tick.dt.to_f64_seconds() as f32;
-        let t = tick.t.to_f64_seconds() as f32;
+        let _t = tick.t.to_f64_seconds() as f32;
         let xform = &mut self.transforms.get_mut(&EntityID::from_raw(1)).unwrap().current;
-        xform.position.x = (PI * t).sin();
-        xform.orientation.rotate_z(PI * dt);
-        xform.scale = Vec3::broadcast((PI * t).sin());
+        xform.orientation.rotate_z(PI * dt / 4.);
     }
     pub fn prepare_render_state_via_lerp_previous_current(&mut self, alpha: f64) {
         let alpha = alpha as f32;
@@ -139,12 +167,20 @@ impl Scene {
         }
     }
     pub fn debug_entity_id(&self, eid: EntityID) {
-        let head = format!("Components of {:?}:", eid);
+        let &Self {
+            allows_quitting: _, clear_color: _, entity_id_domain: _,
+            ref names, ref transforms, ref cameras, ref meshes, ref texts,
+            ref pathshapes,
+        } = self;
+        let head = format!("Components of {:?}", eid);
         let mut cpts = String::new();
-        if let Some(x) = self.transforms.get(&eid) { cpts += &format!("\n- {:?}", x.current); }
-        if let Some(x) = self.cameras.get(&eid) { cpts += &format!("\n- {:?}", x.current); }
-        if let Some(x) = self.meshes.get(&eid) { cpts += &format!("\n- {:?}", x); }
-        info!("{}{}", &head, if cpts.is_empty() { "None at all!" } else { &cpts });
+        if let Some(x) = names.get(&eid) { cpts += &format!(" ({:?})", x); }
+        if let Some(x) = transforms.get(&eid) { cpts += &format!("\n- {:?}", x.current); }
+        if let Some(x) = cameras.get(&eid) { cpts += &format!("\n- {:?}", x.current); }
+        if let Some(x) = meshes.get(&eid) { cpts += &format!("\n- {:?}", x); }
+        if let Some(x) = texts.get(&eid) { cpts += &format!("\n- {:?}", x); }
+        if let Some(x) = pathshapes.get(&eid) { cpts += &format!("\n- {:?}", x); }
+        info!("{}{}", &head, if cpts.is_empty() { " None at all!" } else { &cpts });
     }
     pub fn render(&mut self, frame: GlobalDataUpdatePack) {
         let g = &frame.g;
@@ -157,20 +193,149 @@ impl Scene {
                 gl::Viewport(x as _, y as _, w as _, h as _);
             }
 
-            // Render all meshes
-
             g.gl_simple_color_program.use_program(&Mat4::identity());
-            for (mesh_eid, mesh_id) in self.meshes.iter() {
-                let mesh = g.meshes[*mesh_id].as_ref().unwrap();
-                let mesh_xform = self.transforms[mesh_eid].render;
-                let model = Mat4::from(mesh_xform);
-                let mvp = proj * view * model;
+
+            let render_mesh_mvp = |mesh: &Mesh, mvp: &Mat4<f32>| {
                 g.gl_simple_color_program.set_uniform_mvp(&mvp);
                 mesh.vao.bind();
                 unsafe {
                     gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
                 }
+            };
+            let render_mesh = |mesh_eid: &EntityID, mesh: &Mesh| {
+                let mesh_xform = self.transforms[mesh_eid].render;
+                let model = Mat4::from(mesh_xform);
+                let mvp = proj * view * model;
+                render_mesh_mvp(mesh, &mvp);
+            };
+            let render_mesh_id = |mesh_eid: &EntityID, mesh_id: &MeshID| {
+                let mesh = g.meshes[*mesh_id].as_ref().unwrap();
+                render_mesh(mesh_eid, mesh);
+            };
+            let render_eid_mesh = |mesh_eid: &EntityID| {
+                let mesh_id = &self.meshes[mesh_eid];
+                render_mesh_id(mesh_eid, mesh_id);
+            };
+
+            // Perform some stencil tricks
+
+            let lucky_quad_eid = &EntityID::from_raw(1);
+            let reddisk_eid = &EntityID::from_raw(3);
+            let bluedisk_eid = &EntityID::from_raw(4);
+            let redshape_eid = &EntityID::from_raw(5);
+            let blueshape_eid = &EntityID::from_raw(6);
+
+            /* 
+            // --- Masking with lucky quad
+            unsafe {
+                gl::Enable(gl::STENCIL_TEST);
+                gl::ClearStencil(0x0); // Set clear value
+                gl::Clear(gl::STENCIL_BUFFER_BIT);
+
+                gl::StencilFunc(gl::ALWAYS, 0x1, 0x1);
+                gl::StencilOp(gl::REPLACE, gl::REPLACE, gl::REPLACE);
+                gl::ColorMask(gl::FALSE, gl::FALSE, gl::FALSE, gl::FALSE);
+                gl::DepthMask(gl::FALSE);
             }
+            render_eid_mesh(lucky_quad_eid);
+            unsafe {
+                gl::ColorMask(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
+                gl::DepthMask(gl::TRUE);
+                gl::StencilFunc(gl::EQUAL, 0x1, 0x1);
+                gl::StencilOp(gl::KEEP, gl::KEEP, gl::KEEP);
+            }
+            render_eid_mesh(reddisk_eid);
+            render_eid_mesh(bluedisk_eid);
+
+            unsafe {
+                gl::Disable(gl::STENCIL_TEST);
+                gl::Disable(gl::DEPTH_TEST);
+            }
+            */
+
+            /*
+            // --- Rendering two stars with fill and gradient
+            let render_shape = |eid: &EntityID| unsafe {
+                let pshape = &self.pathshapes[eid];
+                gl::Enable(gl::STENCIL_TEST);
+                gl::ClearStencil(0x0); // Set clear value
+                gl::Clear(gl::STENCIL_BUFFER_BIT);
+                gl::ColorMask(gl::FALSE, gl::FALSE, gl::FALSE, gl::FALSE);
+                gl::DepthMask(gl::FALSE);
+                gl::StencilFunc(gl::ALWAYS, 0, 1);
+                gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
+                gl::StencilMask(1);
+                render_mesh(eid, &pshape.polyfanmask_mesh);
+                gl::ColorMask(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
+                gl::DepthMask(gl::TRUE);
+                gl::StencilFunc(gl::EQUAL, 1, 1);
+                gl::StencilOp(gl::KEEP, gl::KEEP, gl::KEEP);
+                render_mesh_mvp(&pshape.fill_color_quad, &Mat4::identity());
+                for m in &pshape.fill_gradient_strips {
+                    render_mesh(eid, m);
+                }
+                gl::Disable(gl::STENCIL_TEST);
+            };
+            render_shape(redshape_eid);
+            render_shape(blueshape_eid);
+            */
+
+            // --- Experimenting with shape intersection
+            unsafe {
+                let red_pshape = &self.pathshapes[redshape_eid];
+                let blu_pshape = &self.pathshapes[blueshape_eid];
+
+                gl::Disable(gl::DEPTH_TEST);
+                gl::Enable(gl::STENCIL_TEST);
+                gl::ClearStencil(0x0); // Set clear value
+                gl::Clear(gl::STENCIL_BUFFER_BIT);
+                gl::StencilMask(1);
+                gl::ColorMask(gl::FALSE, gl::FALSE, gl::FALSE, gl::FALSE);
+                gl::DepthMask(gl::FALSE);
+
+                // Fill B in stencil
+                gl::StencilFunc(gl::ALWAYS, 0, 1);
+                gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
+                render_mesh(blueshape_eid, &blu_pshape.polyfanmask_mesh);
+
+                // Subtract A
+                gl::StencilFunc(gl::EQUAL, 1, 1);
+                gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
+                render_mesh(redshape_eid, &red_pshape.polyfanmask_mesh);
+
+                // Fill B again, we get the intersection of A and B.
+                gl::StencilFunc(gl::ALWAYS, 0, 1);
+                gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
+                render_mesh(blueshape_eid, &blu_pshape.polyfanmask_mesh);
+
+                // Fill intersection with solid color
+                gl::Disable(gl::DEPTH_TEST);
+                gl::ColorMask(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
+                gl::DepthMask(gl::TRUE);
+                gl::StencilFunc(gl::EQUAL, 1, 1);
+                gl::StencilOp(gl::KEEP, gl::KEEP, gl::KEEP);
+                render_mesh_mvp(&red_pshape.fill_color_quad, &Mat4::identity());
+
+                gl::Disable(gl::STENCIL_TEST);
+            }
+
+
+            //----
+
+            unsafe {
+                gl::Enable(gl::DEPTH_TEST);
+            }
+
+            // Render all meshes
+
+            /* XXX: uncomment when done with stencil experiments
+            for (mesh_eid, mesh_id) in self.meshes.iter() {
+                if mesh_eid == lucky_quad_eid {
+                    continue; // XXX Hack for stencil
+                }
+                render_mesh_id(mesh_eid, mesh_id);
+            }
+            */
 
             // Render text overlay
 
@@ -263,8 +428,26 @@ impl Scene {
                 let texunit = grx::TextureUnit::from(*font);
                 let font = &g.fonts.fonts[font];
                 if let &Some(ref color) = shadow_hack {
-                    let ss_pos = ss_pos + 1;
+                    let mut ss_pos = ss_pos;
+                    // PERF: This is a horrible way to do 1px text contour!
+                    ss_pos.x += 1;
                     render_some_text(ss_pos, text, font, texunit, *color);
+                    ss_pos.y -= 1;
+                    render_some_text(ss_pos, text, font, texunit, *color);
+                    /* Comment, otherwise we lose 10 FPS
+                    ss_pos.x -= 1;
+                    render_some_text(ss_pos, text, font, texunit, *color);
+                    ss_pos.x -= 1;
+                    render_some_text(ss_pos, text, font, texunit, *color);
+                    ss_pos.y += 1;
+                    render_some_text(ss_pos, text, font, texunit, *color);
+                    ss_pos.y += 1;
+                    render_some_text(ss_pos, text, font, texunit, *color);
+                    ss_pos.x += 1;
+                    render_some_text(ss_pos, text, font, texunit, *color);
+                    ss_pos.x += 1;
+                    render_some_text(ss_pos, text, font, texunit, *color);
+                    */
                 }
                 render_some_text(ss_pos, text, font, texunit, *color);
             }
@@ -272,7 +455,15 @@ impl Scene {
             let font = &g.fonts.fonts[&fontname];
             let texunit = grx::TextureUnit::from(fontname);
             let text = format!("{}\n{}", g.input.mouse.position, Vec2::<f32>::from(Self::mouse_world_pos(g, camera, camera_xform)));
-            render_some_text(g.input.mouse.position.map(|x| x as i32), &text, font, texunit, Rgba::black());
+            let mpos = g.input.mouse.position.map(|x| x as i32);
+            {
+                let mut mpos = mpos;
+                mpos.x += 1;
+                render_some_text(mpos, &text, font, texunit, Rgba::black());
+                mpos.y += 1;
+                render_some_text(mpos, &text, font, texunit, Rgba::black());
+            }
+            render_some_text(mpos, &text, font, texunit, Rgba::white());
 
             /*
             let text = "This is some SAMPLE TEXT!!1!11\n\t(Glad that it works.) 0123456789@$";
@@ -304,21 +495,35 @@ impl Scene {
         Self::window_to_world(g.input.mouse.position.map(|x| x as i32), g, camera, camera_xform)
     }
 
-    pub fn new_test_room(viewport: Rect<u32, u32>) -> Self {
+    pub fn new_test_room(g: &Global) -> Self {
+        let viewport = Rect::from((Vec2::zero(), g.window_size));
+        let gl_simple_color_program = &g.gl_simple_color_program;
+
         let mut entity_id_domain = EntityIDDomain::new_empty();
         let hasher_builder = EntityIDHasherBuilder::default();
-        let mut meshes = EntityIDMap::with_capacity_and_hasher(1, hasher_builder);
-        let mut transforms = EntityIDMap::with_capacity_and_hasher(2, hasher_builder);
+        let mut names = EntityIDMap::with_capacity_and_hasher(5, hasher_builder);
+        let mut transforms = EntityIDMap::with_capacity_and_hasher(5, hasher_builder);
         let mut cameras = EntityIDMap::with_capacity_and_hasher(1, hasher_builder);
+        let mut meshes = EntityIDMap::with_capacity_and_hasher(3, hasher_builder);
         let mut texts = EntityIDMap::with_capacity_and_hasher(1, hasher_builder);
+        let mut pathshapes = EntityIDMap::with_capacity_and_hasher(2, hasher_builder);
 
         let camera_id = EntityID::from_raw(0);
         let quad_id = EntityID::from_raw(1);
         let inspector_id = EntityID::from_raw(2);
+        let reddisk_id = EntityID::from_raw(3);
+        let bluedisk_id = EntityID::from_raw(4);
+        let redshape_id = EntityID::from_raw(5);
+        let blueshape_id = EntityID::from_raw(6);
         entity_id_domain.include_id(camera_id);
         entity_id_domain.include_id(quad_id);
         entity_id_domain.include_id(inspector_id);
+        entity_id_domain.include_id(reddisk_id);
+        entity_id_domain.include_id(bluedisk_id);
+        entity_id_domain.include_id(redshape_id);
+        entity_id_domain.include_id(blueshape_id);
 
+        names.insert(camera_id, "Main Camera".to_owned());
         let near = 0.01_f32;
         transforms.insert(camera_id, Transform3D {
             position: Vec3::back_lh() * (near + 0.001_f32),
@@ -328,30 +533,107 @@ impl Scene {
             viewport, ortho_right: 1., near, far: 100.,
         }.into());
 
+        names.insert(quad_id, "Lucky Quad".to_owned());
         transforms.insert(quad_id, {
             let mut xform = Transform3D::default();
             xform.position.z = 1.;
-            xform.scale /= 20.;
+            xform.scale *= 0.75;
             xform.into()
         });
         meshes.insert(quad_id, MeshID::from_raw(0));
 
+        names.insert(inspector_id, "Inspector".to_owned());
         texts.insert(inspector_id, GUIText {
             screen_space_offset: Vec2::new(0, 16),
             text: "Hello! I'm Foo!!".to_string(),
             font: FontName::Debug,
-            color: Rgba::blue(),
-            shadow_hack: Some(Rgba::red()),
+            color: Rgba::white(),
+            shadow_hack: Some(Rgba::grey(1./6.)),
+        });
+
+        names.insert(reddisk_id, "Red Disk".to_owned());
+        transforms.insert(reddisk_id, {
+            let mut xform = Transform3D::default();
+            xform.position.z = 1.;
+            xform.position.x = -0.25;
+            xform.scale /= 2.;
+            xform.into()
+        });
+        meshes.insert(reddisk_id, MeshID::from_raw(1));
+
+        names.insert(bluedisk_id, "Blue Disk".to_owned());
+        transforms.insert(bluedisk_id, {
+            let mut xform = Transform3D::default();
+            xform.position.z = 1.;
+            xform.position.x = 0.25;
+            xform.scale /= 2.;
+            xform.into()
+        });
+        meshes.insert(bluedisk_id, MeshID::from_raw(2));
+
+        names.insert(redshape_id, "Red Shape".to_owned());
+        transforms.insert(redshape_id, {
+            let mut xform = Transform3D::default();
+            xform.position.z = 1.;
+            xform.position.x = -0.25;
+            xform.position.y = -0.5;
+            xform.scale /= 2.;
+            xform.into()
+        });
+        pathshapes.insert(redshape_id, PathShape {
+            polyfanmask_mesh: Mesh::new_star_polyfanmask(
+                &gl_simple_color_program, "Red Shape PolyFanMask", gx::UpdateHint::Occasionally
+            ),
+            fill_color_quad: Mesh::new_filled_quad(
+                &gl_simple_color_program, "Red Shape Fill", gx::UpdateHint::Occasionally, Rgba::red(), 1.
+            ),
+            fill_gradient_strips: vec![
+                Mesh::new_gradient_strip(
+                    &gl_simple_color_program, "Red Shape Fill Gradient", gx::UpdateHint::Occasionally,
+                    (Vec3::new(0.5, -0.5, 0.), Rgba::zero()), 
+                    (Vec3::new(-0.5, 0.5, 0.), Rgba::black())
+                )
+            ],
+        });
+
+        names.insert(blueshape_id, "Blue Shape".to_owned());
+        transforms.insert(blueshape_id, {
+            let mut xform = Transform3D::default();
+            xform.position.z = 1.;
+            xform.position.x = 0.; //0.25;
+            xform.position.y = -0.5;
+            //xform.scale *= 2.;
+            xform.into()
+        });
+        pathshapes.insert(blueshape_id, PathShape {
+            polyfanmask_mesh: Mesh::new_star_polyfanmask(
+                &gl_simple_color_program, "Blue Shape PolyFanMask", gx::UpdateHint::Occasionally
+            ),
+            fill_color_quad: Mesh::new_filled_quad(
+                &gl_simple_color_program, "Blue Shape Fill", gx::UpdateHint::Occasionally, Rgba::blue(), 1.
+            ),
+            fill_gradient_strips: vec![
+                Mesh::new_gradient_strip(
+                    &gl_simple_color_program, "Red Shape Fill Gradient", gx::UpdateHint::Occasionally,
+                    (Vec3::unit_x()/4.-0.01, Rgba::green()), 
+                    (Vec3::unit_x()/4., Rgba::blue())
+                )
+            ],
         });
 
         let slf = Self {
             entity_id_domain,
-            meshes, transforms, cameras, texts,
+            names, transforms, cameras, meshes, texts, pathshapes,
             allows_quitting: true,
             clear_color: Rgb::cyan(),
         };
         slf.debug_entity_id(camera_id);
         slf.debug_entity_id(quad_id);
+        slf.debug_entity_id(inspector_id);
+        slf.debug_entity_id(reddisk_id);
+        slf.debug_entity_id(bluedisk_id);
+        slf.debug_entity_id(redshape_id);
+        slf.debug_entity_id(blueshape_id);
         slf
     }
 }
