@@ -1,13 +1,11 @@
 // TODO:
 // - Stroke style for shapes;
+//   - Solution: Use GL_LINES and draw screen-space-sized disks at the caps
 // - post-processing FX ?????
 // - Play some sounds with OpenAL;
 // - Play music continusouly across loadings;
 // - Create the Bézier path editor;
 // - Load resource files, as well as async ones. Async resource manager if you will.
-//
-// Minor:
-// - It bugs me to type Transform<f32,f32,f32> every time;
 //
 // WONTFIX:
 // - Mouse position at the beginning: SDL_GetMouseState() just doesn't work.
