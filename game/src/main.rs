@@ -1,4 +1,7 @@
 // TODO:
+// - If the universe is infinite,
+//   then there is an infinite quantity of worlds
+//   where this story is happening.
 // - Stroke style for shapes;
 //   - Solution: Use GL_LINES and draw screen-space-sized disks at the caps
 // - post-processing FX ?????
