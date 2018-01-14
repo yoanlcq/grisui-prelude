@@ -178,8 +178,8 @@ impl Scene {
         if let Some(x) = transforms.get(&eid) { cpts += &format!("\n- {:?}", x.current); }
         if let Some(x) = cameras.get(&eid) { cpts += &format!("\n- {:?}", x.current); }
         if let Some(x) = meshes.get(&eid) { cpts += &format!("\n- {:?}", x); }
-        if let Some(x) = texts.get(&eid) { cpts += &format!("\n- {:?}", x); }
-        if let Some(x) = pathshapes.get(&eid) { cpts += &format!("\n- {:?}", x); }
+        if let Some(x) = texts.get(&eid) { cpts += &format!("\n- {:#?}", x); }
+        if let Some(x) = pathshapes.get(&eid) { cpts += &format!("\n- {:#?}", x); }
         info!("{}{}", &head, if cpts.is_empty() { " None at all!" } else { &cpts });
     }
     pub fn render(&mut self, frame: GlobalDataUpdatePack) {
