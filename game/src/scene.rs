@@ -432,7 +432,7 @@ impl Scene {
                     // PERF: This is a horrible way to do 1px text contour!
                     ss_pos.x += 1;
                     render_some_text(ss_pos, text, font, texunit, *color);
-                    ss_pos.y -= 1;
+                    ss_pos.y += 1;
                     render_some_text(ss_pos, text, font, texunit, *color);
                     /* Comment, otherwise we lose 10 FPS
                     ss_pos.x -= 1;
@@ -545,7 +545,7 @@ impl Scene {
         names.insert(inspector_id, "Inspector".to_owned());
         texts.insert(inspector_id, GUIText {
             screen_space_offset: Vec2::new(0, 16),
-            text: "Hello! I'm Foo!!".to_string(),
+            text: "If the universe is infinite,\nthen there is an infinite quantity of worlds\nwhere this story is happening.".to_owned(),
             font: FontName::Debug,
             color: Rgba::white(),
             shadow_hack: Some(Rgba::grey(1./6.)),

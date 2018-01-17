@@ -1,7 +1,5 @@
 // TODO:
-// - If the universe is infinite,
-//   then there is an infinite quantity of worlds
-//   where this story is happening.
+// - Use SimStates for Input (so that mouse cursor followss quickly while rendering)
 // - Stroke style for shapes;
 //   - Solution: Use GL_LINES and draw screen-space-sized disks at the caps
 // - post-processing FX ?????
@@ -18,6 +16,11 @@
 //   If so, move the repo to a new one and start using ftp.
 // - How to render Debug text last so it is drawn over other kinds of text ?
 //   Just don't care for now.
+//
+// Inspirations:
+// - Bionicle MNOG;
+// - Night In The Woods;
+// - Mimpi Dreams;
 
 // #![allow(unused_imports)]
 
