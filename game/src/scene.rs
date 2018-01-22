@@ -12,6 +12,13 @@ use grx;
 use fonts::{Font, FontName};
 use mesh::Mesh;
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum HackMode {
+    RenderAllMeshes,
+    Intersection,
+    Masking,
+    TwoStars,
+}
 
 #[derive(Debug)]
 pub struct Scene {
@@ -182,8 +189,23 @@ impl Scene {
         if let Some(x) = pathshapes.get(&eid) { cpts += &format!("\n- {:#?}", x); }
         info!("{}{}", &head, if cpts.is_empty() { " None at all!" } else { &cpts });
     }
-    pub fn render(&mut self, frame: GlobalDataUpdatePack) {
-        let g = &frame.g;
+    pub fn render(&mut self, mut frame: GlobalDataUpdatePack) {
+        let g = &mut frame.g;
+
+        use ::sdl2::keyboard::Keycode;
+        if g.input.keyboard.key(Keycode::Left).was_just_pressed() {
+            g.hack_mode = HackMode::TwoStars
+        }
+        if g.input.keyboard.key(Keycode::Right).was_just_pressed() {
+            g.hack_mode = HackMode::Masking
+        }
+        if g.input.keyboard.key(Keycode::Up).was_just_pressed() {
+            g.hack_mode = HackMode::Intersection
+        }
+        if g.input.keyboard.key(Keycode::Down).was_just_pressed() {
+            g.hack_mode = HackMode::RenderAllMeshes
+        };
+
         for (camera_eid, camera) in self.cameras.iter().map(|(id, c)| (id, &c.render)) {
             let camera_xform = &self.transforms[camera_eid].render;
             let view = camera.view_matrix(camera_xform);
@@ -225,117 +247,114 @@ impl Scene {
             let redshape_eid = &EntityID::from_raw(5);
             let blueshape_eid = &EntityID::from_raw(6);
 
-            /* 
-            // --- Masking with lucky quad
-            unsafe {
-                gl::Enable(gl::STENCIL_TEST);
-                gl::ClearStencil(0x0); // Set clear value
-                gl::Clear(gl::STENCIL_BUFFER_BIT);
+            match g.hack_mode {
+                HackMode::Masking => {
+                    // --- Masking with lucky quad
+                    unsafe {
+                        gl::Enable(gl::STENCIL_TEST);
+                        gl::ClearStencil(0x0); // Set clear value
+                        gl::Clear(gl::STENCIL_BUFFER_BIT);
 
-                gl::StencilFunc(gl::ALWAYS, 0x1, 0x1);
-                gl::StencilOp(gl::REPLACE, gl::REPLACE, gl::REPLACE);
-                gl::ColorMask(gl::FALSE, gl::FALSE, gl::FALSE, gl::FALSE);
-                gl::DepthMask(gl::FALSE);
-            }
-            render_eid_mesh(lucky_quad_eid);
-            unsafe {
-                gl::ColorMask(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
-                gl::DepthMask(gl::TRUE);
-                gl::StencilFunc(gl::EQUAL, 0x1, 0x1);
-                gl::StencilOp(gl::KEEP, gl::KEEP, gl::KEEP);
-            }
-            render_eid_mesh(reddisk_eid);
-            render_eid_mesh(bluedisk_eid);
+                        gl::StencilFunc(gl::ALWAYS, 0x1, 0x1);
+                        gl::StencilOp(gl::REPLACE, gl::REPLACE, gl::REPLACE);
+                        gl::ColorMask(gl::FALSE, gl::FALSE, gl::FALSE, gl::FALSE);
+                        gl::DepthMask(gl::FALSE);
+                    }
+                    render_eid_mesh(lucky_quad_eid);
+                    unsafe {
+                        gl::ColorMask(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
+                        gl::DepthMask(gl::TRUE);
+                        gl::StencilFunc(gl::EQUAL, 0x1, 0x1);
+                        gl::StencilOp(gl::KEEP, gl::KEEP, gl::KEEP);
+                    }
+                    render_eid_mesh(reddisk_eid);
+                    render_eid_mesh(bluedisk_eid);
 
-            unsafe {
-                gl::Disable(gl::STENCIL_TEST);
-                gl::Disable(gl::DEPTH_TEST);
-            }
-            */
+                    unsafe {
+                        gl::Disable(gl::STENCIL_TEST);
+                        gl::Disable(gl::DEPTH_TEST);
+                    }
+                },
+                HackMode::TwoStars => {
+                    // --- Rendering two stars with fill and gradient
+                    let render_shape = |eid: &EntityID| unsafe {
+                        let pshape = &self.pathshapes[eid];
+                        gl::Enable(gl::STENCIL_TEST);
+                        gl::ClearStencil(0x0); // Set clear value
+                        gl::Clear(gl::STENCIL_BUFFER_BIT);
+                        gl::ColorMask(gl::FALSE, gl::FALSE, gl::FALSE, gl::FALSE);
+                        gl::DepthMask(gl::FALSE);
+                        gl::StencilFunc(gl::ALWAYS, 0, 1);
+                        gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
+                        gl::StencilMask(1);
+                        render_mesh(eid, &pshape.polyfanmask_mesh);
+                        gl::ColorMask(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
+                        gl::DepthMask(gl::TRUE);
+                        gl::StencilFunc(gl::EQUAL, 1, 1);
+                        gl::StencilOp(gl::KEEP, gl::KEEP, gl::KEEP);
+                        render_mesh_mvp(&pshape.fill_color_quad, &Mat4::identity());
+                        for m in &pshape.fill_gradient_strips {
+                            render_mesh(eid, m);
+                        }
+                        gl::Disable(gl::STENCIL_TEST);
+                    };
+                    render_shape(redshape_eid);
+                    render_shape(blueshape_eid);
+                },
+                HackMode::Intersection => {
+                    // --- Experimenting with shape intersection
+                    unsafe {
+                        let red_pshape = &self.pathshapes[redshape_eid];
+                        let blu_pshape = &self.pathshapes[blueshape_eid];
 
-            /*
-            // --- Rendering two stars with fill and gradient
-            let render_shape = |eid: &EntityID| unsafe {
-                let pshape = &self.pathshapes[eid];
-                gl::Enable(gl::STENCIL_TEST);
-                gl::ClearStencil(0x0); // Set clear value
-                gl::Clear(gl::STENCIL_BUFFER_BIT);
-                gl::ColorMask(gl::FALSE, gl::FALSE, gl::FALSE, gl::FALSE);
-                gl::DepthMask(gl::FALSE);
-                gl::StencilFunc(gl::ALWAYS, 0, 1);
-                gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
-                gl::StencilMask(1);
-                render_mesh(eid, &pshape.polyfanmask_mesh);
-                gl::ColorMask(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
-                gl::DepthMask(gl::TRUE);
-                gl::StencilFunc(gl::EQUAL, 1, 1);
-                gl::StencilOp(gl::KEEP, gl::KEEP, gl::KEEP);
-                render_mesh_mvp(&pshape.fill_color_quad, &Mat4::identity());
-                for m in &pshape.fill_gradient_strips {
-                    render_mesh(eid, m);
-                }
-                gl::Disable(gl::STENCIL_TEST);
+                        gl::Disable(gl::DEPTH_TEST);
+                        gl::Enable(gl::STENCIL_TEST);
+                        gl::ClearStencil(0x0); // Set clear value
+                        gl::Clear(gl::STENCIL_BUFFER_BIT);
+                        gl::StencilMask(1);
+                        gl::ColorMask(gl::FALSE, gl::FALSE, gl::FALSE, gl::FALSE);
+                        gl::DepthMask(gl::FALSE);
+
+                        // Fill B in stencil
+                        gl::StencilFunc(gl::ALWAYS, 0, 1);
+                        gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
+                        render_mesh(blueshape_eid, &blu_pshape.polyfanmask_mesh);
+
+                        // Subtract A
+                        gl::StencilFunc(gl::EQUAL, 1, 1);
+                        gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
+                        render_mesh(redshape_eid, &red_pshape.polyfanmask_mesh);
+
+                        // Fill B again, we get the intersection of A and B.
+                        gl::StencilFunc(gl::ALWAYS, 0, 1);
+                        gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
+                        render_mesh(blueshape_eid, &blu_pshape.polyfanmask_mesh);
+
+                        // Fill intersection with solid color
+                        gl::Disable(gl::DEPTH_TEST);
+                        gl::ColorMask(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
+                        gl::DepthMask(gl::TRUE);
+                        gl::StencilFunc(gl::EQUAL, 1, 1);
+                        gl::StencilOp(gl::KEEP, gl::KEEP, gl::KEEP);
+                        render_mesh_mvp(&red_pshape.fill_color_quad, &Mat4::identity());
+
+                        gl::Disable(gl::STENCIL_TEST);
+                    }
+                },
+                HackMode::RenderAllMeshes => {
+                    unsafe {
+                        gl::Enable(gl::DEPTH_TEST);
+                    }
+
+                    // Render all meshes
+                    for (mesh_eid, mesh_id) in self.meshes.iter() {
+                        if mesh_eid == lucky_quad_eid {
+                            continue; // XXX Hack for stencil
+                        }
+                        render_mesh_id(mesh_eid, mesh_id);
+                    }
+                },
             };
-            render_shape(redshape_eid);
-            render_shape(blueshape_eid);
-            */
-
-            // --- Experimenting with shape intersection
-            unsafe {
-                let red_pshape = &self.pathshapes[redshape_eid];
-                let blu_pshape = &self.pathshapes[blueshape_eid];
-
-                gl::Disable(gl::DEPTH_TEST);
-                gl::Enable(gl::STENCIL_TEST);
-                gl::ClearStencil(0x0); // Set clear value
-                gl::Clear(gl::STENCIL_BUFFER_BIT);
-                gl::StencilMask(1);
-                gl::ColorMask(gl::FALSE, gl::FALSE, gl::FALSE, gl::FALSE);
-                gl::DepthMask(gl::FALSE);
-
-                // Fill B in stencil
-                gl::StencilFunc(gl::ALWAYS, 0, 1);
-                gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
-                render_mesh(blueshape_eid, &blu_pshape.polyfanmask_mesh);
-
-                // Subtract A
-                gl::StencilFunc(gl::EQUAL, 1, 1);
-                gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
-                render_mesh(redshape_eid, &red_pshape.polyfanmask_mesh);
-
-                // Fill B again, we get the intersection of A and B.
-                gl::StencilFunc(gl::ALWAYS, 0, 1);
-                gl::StencilOp(gl::KEEP, gl::KEEP, gl::INVERT);
-                render_mesh(blueshape_eid, &blu_pshape.polyfanmask_mesh);
-
-                // Fill intersection with solid color
-                gl::Disable(gl::DEPTH_TEST);
-                gl::ColorMask(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
-                gl::DepthMask(gl::TRUE);
-                gl::StencilFunc(gl::EQUAL, 1, 1);
-                gl::StencilOp(gl::KEEP, gl::KEEP, gl::KEEP);
-                render_mesh_mvp(&red_pshape.fill_color_quad, &Mat4::identity());
-
-                gl::Disable(gl::STENCIL_TEST);
-            }
-
-
-            //----
-
-            unsafe {
-                gl::Enable(gl::DEPTH_TEST);
-            }
-
-            // Render all meshes
-
-            /* XXX: uncomment when done with stencil experiments
-            for (mesh_eid, mesh_id) in self.meshes.iter() {
-                if mesh_eid == lucky_quad_eid {
-                    continue; // XXX Hack for stencil
-                }
-                render_mesh_id(mesh_eid, mesh_id);
-            }
-            */
 
             // Render text overlay
 

@@ -51,6 +51,7 @@ pub struct Global {
     pub saves: SaveIDRealm<Save>,
 
     // Current state, current IDs
+    pub hack_mode: ::scene::HackMode,
     pub save_id: SaveID,
     // Current state, ctd.
     pub input: Input,
@@ -343,6 +344,8 @@ impl Default for Global {
 
         let window_size = Extent2::from(window.drawable_size());
 
+        let hack_mode = ::scene::HackMode::TwoStars;
+
         let mut g = Self {
             path_to_res, path_to_saves,
             alto, alto_dev, alto_context,
@@ -360,6 +363,7 @@ impl Default for Global {
             saves,
 
             save_id,
+            hack_mode,
             input,
             window_size,
         };
@@ -397,6 +401,7 @@ impl_debug_for_global!{
         saves,
 
         save_id,
+        hack_mode,
         input,
         window_size,
     }
