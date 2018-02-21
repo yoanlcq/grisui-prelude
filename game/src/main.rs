@@ -2,11 +2,13 @@
 // - Use SimStates for Input (so that mouse cursor followss quickly while rendering)
 // - Stroke style for shapes;
 //   - Solution: Use GL_LINES and draw screen-space-sized disks at the caps
+// - Color picker ???
+// - Create the Bézier path editor;
 // - post-processing FX ?????
+// - Load resource files, as well as async ones. Async resource manager if you will.
+//
 // - Play some sounds with OpenAL;
 // - Play music continusouly across loadings;
-// - Create the Bézier path editor;
-// - Load resource files, as well as async ones. Async resource manager if you will.
 //
 // WONTFIX:
 // - Mouse position at the beginning: SDL_GetMouseState() just doesn't work.
