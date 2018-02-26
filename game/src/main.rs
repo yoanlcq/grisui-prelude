@@ -1,5 +1,11 @@
+// Today:
+// - Use callback-driven event dispatch
+// - Investigate a way to make text rendering faster
+// - Clean-up text rendering
+// - Clean-up Path rendering
+// - Make the Bézier curve editor (separate mode)
+//
 // TODO:
-// - Use SimStates for Input (so that mouse cursor followss quickly while rendering)
 // - Stroke style for shapes;
 //   - Solution: Use GL_LINES and draw screen-space-sized disks at the caps
 // - Color picker ???
@@ -71,7 +77,8 @@ pub mod global;
 pub mod grx;
 pub mod gx;
 pub mod ids;
-pub mod input;
+// pub mod input;
+pub mod events;
 pub mod lazy;
 pub mod mesh;
 pub mod save;
@@ -89,8 +96,9 @@ fn main() {
     use std::time::{Instant, Duration};
     use std::thread;
     use scene::Scene;
-    use global::{Global, GlobalDataUpdatePack};
+    use global::{Global, GlobalDataUpdatePack, FpsStats};
     use duration_ext::DurationExt;
+    use events;
 
     info!("Initializing...");
     let mut g = Global::default();
@@ -122,14 +130,20 @@ fn main() {
         // See http://www.opengl-tutorial.org/miscellaneous/an-fps-counter/
         frame_accum += 1;
         if current_time.duration_since(last_frame_time) > Duration::from_millis(fps_counter_interval as _) {
-            let fps = ((frame_accum as f64) * 1000f64 / fps_counter_interval).round() as u32;
+            let fps = (frame_accum as f64) * 1000f64 / fps_counter_interval;
+
+            g.fps_stats = FpsStats {
+                frames_under_milliseconds: (frame_accum, fps_counter_interval),
+                milliseconds_per_frame: fps_counter_interval / (frame_accum as f64),
+                fps,
+            };
             trace!(concat!("{} frames under {} milliseconds = ",
                 "{} milliseconds/frame = ",
                 "{} FPS"), 
-                frame_accum,
-                fps_counter_interval,
-                fps_counter_interval / (frame_accum as f64), 
-                fps
+                g.fps_stats.frames_under_milliseconds.0,
+                g.fps_stats.frames_under_milliseconds.1,
+                g.fps_stats.milliseconds_per_frame, 
+                g.fps_stats.fps
             );
             frame_accum = 0;
             last_frame_time += Duration::from_millis(fps_counter_interval as _);
@@ -159,15 +173,16 @@ fn main() {
 
         while accumulator >= dt {
             scene.replace_previous_state_by_current();
-            g.replace_previous_state_by_current();
+            g    .replace_previous_state_by_current();
             for event in event_pump.poll_iter() {
-                g.handle_sdl2_event_before_new_tick(&event);
-                scene.handle_sdl2_event_before_new_tick(&event);
+                events::dispatch_sdl2_event(&mut scene, &event);
+                events::dispatch_sdl2_event(&mut g    , &event);
             }
             scene.integrate(GlobalDataUpdatePack { t, dt, tick_i, frame_i, g: &mut g, });
             tick_i += 1;
 
-            if g.input.wants_to_quit && scene.allows_quitting {
+            if scene.wants_to_quit && scene.allows_quitting
+            && g    .wants_to_quit && g    .allows_quitting {
                 break 'running;
             }
 
@@ -177,6 +192,11 @@ fn main() {
         
         let alpha = accumulator.to_f64_seconds() / dt.to_f64_seconds();
         scene.prepare_render_state_via_lerp_previous_current(alpha);
+
+        for event in event_pump.poll_iter() {
+            events::dispatch_sdl2_event(&mut scene, &event);
+            events::dispatch_sdl2_event(&mut g    , &event);
+        }
 
         g.render_clear(scene.clear_color);
         scene.render(GlobalDataUpdatePack { t, dt, tick_i, frame_i, g: &mut g, });

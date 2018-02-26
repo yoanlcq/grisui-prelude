@@ -10,24 +10,31 @@ use log::LevelFilter;
 use sdl2;
 use sdl2::{Sdl, VideoSubsystem};
 use sdl2::video::{Window, GLContext, GLProfile, SwapInterval};
-use sdl2::event::{Event, WindowEvent};
+use sdl2::keyboard::Keycode;
 use alto;
 use alto::Alto;
 use gl;
 use gx;
 use grx;
-use v::{Rgb, Rgba, Extent2};
+use v::{Rgb, Rgba, Extent2, Vec2};
 use scene::Scene;
-use input::Input;
 use mesh::{Mesh, FontAtlasMesh};
 use ids::*;
 use lazy::Lazy;
 use save::Save;
 use fonts::Fonts;
+use events::{Sdl2EventSubscriber, KeyInput, MouseButtonInput};
 
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct FpsStats {
+    pub frames_under_milliseconds: (u64, f64),
+    pub milliseconds_per_frame: f64,
+    pub fps: f64,
+}
 
 pub struct Global {
     // Runtime
+    pub fps_stats: FpsStats,
     pub path_to_res: PathBuf,
     pub path_to_saves: PathBuf,
     pub alto: Alto,
@@ -51,10 +58,13 @@ pub struct Global {
     pub saves: SaveIDRealm<Save>,
 
     // Current state, current IDs
-    pub hack_mode: ::scene::HackMode,
+    pub wants_to_quit: bool,
+    pub allows_quitting: bool,
+    pub mouse_position: Vec2<i32>,
     pub save_id: SaveID,
+    pub should_render_debug_text: bool,
+    pub hack_mode: ::scene::HackMode,
     // Current state, ctd.
-    pub input: Input,
     pub window_size: Extent2<u32>,
 }
 
@@ -293,8 +303,6 @@ impl Default for Global {
         path_to_fonts.push("fonts");
         let fonts = Fonts::from_path(&path_to_fonts).unwrap();
 
-        let input = Input::default();
-
         let tags = TagIDRealm::from_iterator(
             ["a", "b", "c"].iter().enumerate().map(|(i, s)| {
                 (TagID::from_raw(i as _), s.to_string())
@@ -347,6 +355,7 @@ impl Default for Global {
         let hack_mode = ::scene::HackMode::TwoStars;
 
         let mut g = Self {
+            fps_stats: FpsStats::default(),
             path_to_res, path_to_saves,
             alto, alto_dev, alto_context,
             sdl, video, window, gl_context, 
@@ -362,9 +371,12 @@ impl Default for Global {
             other_scenes,
             saves,
 
+            wants_to_quit: false,
+            allows_quitting: true,
+            mouse_position: Vec2::zero(),
             save_id,
             hack_mode,
-            input,
+            should_render_debug_text: true,
             window_size,
         };
         g.reshape(window_size);
@@ -388,6 +400,7 @@ macro_rules! impl_debug_for_global {
 impl_debug_for_global!{
     ignore: {alto, alto_dev, alto_context, sdl, window, gl_context, }
     fields: {
+        fps_stats,
         path_to_res, path_to_saves,
         video, gl_simple_color_program, gl_text_program,
         fonts,
@@ -400,36 +413,57 @@ impl_debug_for_global!{
         other_scenes,
         saves,
 
+        wants_to_quit, allows_quitting,
+        mouse_position,
         save_id,
         hack_mode,
-        input,
+        should_render_debug_text,
         window_size,
     }
 }
 
-impl Global {
-    pub fn handle_sdl2_event_before_new_tick(&mut self, event: &Event) {
-        self.input.handle_sdl2_event_before_new_tick(event);
-        match *event {
-            Event::Window { win_event, .. } => match win_event {
-                WindowEvent::Resized(w, h) => {
-                    self.reshape(Extent2::new(w as _, h as _));
-                },
-                WindowEvent::SizeChanged(w, h) => {
-                    self.reshape(Extent2::new(w as _, h as _));
-                },
-                _ => (),
-            },
-            _ => (),
-        };
+impl Sdl2EventSubscriber for Global {
+    fn on_wants_to_quit(&mut self) {
+        self.wants_to_quit = true;
     }
+    fn on_text_input(&mut self, _text: &str) {}
+    fn on_key(&mut self, key: KeyInput) {
+        let KeyInput { keycode, state } = key;
+        let is_down = state.is_down();
+        if is_down {
+            self.hack_mode = match keycode {
+                Keycode::Left => ::scene::HackMode::TwoStars,
+                Keycode::Right => ::scene::HackMode::Masking,
+                Keycode::Up => ::scene::HackMode::Intersection,
+                Keycode::Down => ::scene::HackMode::RenderAllMeshes,
+                _ => self.hack_mode,
+            };
+            match keycode {
+                Keycode::T => self.should_render_debug_text = !self.should_render_debug_text,
+                _ => (),
+            };
+        }
+    }
+    fn on_scroll(&mut self, _delta: Vec2<i32>) {}
+    fn on_mouse_motion(&mut self, pos: Vec2<i32>) {
+        self.mouse_position = pos;
+    }
+    fn on_mouse_button(&mut self, _btn: MouseButtonInput) {}
+    fn on_window_resized(&mut self, size: Extent2<u32>) {
+        self.reshape(size);
+    }
+    fn on_window_size_changed(&mut self, size: Extent2<u32>) {
+        self.reshape(size);
+    }
+}
+
+impl Global {
     pub fn reshape(&mut self, window_size: Extent2<u32>) {
         self.window_size = window_size;
     }
 
-    pub fn replace_previous_state_by_current(&mut self) {
-        self.input.begin_tick_and_event_processing();
-    }
+    pub fn replace_previous_state_by_current(&mut self) {}
+
     pub fn render_clear(&self, clear_color: Rgb<u8>) {
         unsafe {
             let Rgb { r, g, b } = clear_color.map(|c| (c as f32)/255.);

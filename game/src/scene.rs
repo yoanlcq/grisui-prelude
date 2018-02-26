@@ -2,7 +2,6 @@ use std::ops::{Index, IndexMut};
 use ids::*;
 use v::{Rgb, Vec2, Extent2, Rect, Lerp, Mat4, Vec3, Rgba};
 use transform::Transform3D;
-use sdl2::event::{Event, WindowEvent};
 use camera::OrthographicCamera;
 use gl;
 use global::{Global, GlobalDataUpdatePack};
@@ -11,6 +10,7 @@ use gx;
 use grx;
 use fonts::{Font, FontName};
 use mesh::Mesh;
+use events::{Sdl2EventSubscriber, KeyInput, MouseButtonInput};
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum HackMode {
@@ -22,6 +22,7 @@ pub enum HackMode {
 
 #[derive(Debug)]
 pub struct Scene {
+    pub wants_to_quit: bool,
     pub allows_quitting: bool,
     pub clear_color: Rgb<u8>,
     pub entity_id_domain: EntityIDDomain,
@@ -131,23 +132,24 @@ impl GUIText {
 }
 */
 
-
+impl Sdl2EventSubscriber for Scene {
+    fn on_wants_to_quit(&mut self) {
+        self.wants_to_quit = true;
+    }
+    fn on_text_input(&mut self, _text: &str) {}
+    fn on_key(&mut self, _key: KeyInput) {}
+    fn on_scroll(&mut self, _delta: Vec2<i32>) {}
+    fn on_mouse_motion(&mut self, _pos: Vec2<i32>) {}
+    fn on_mouse_button(&mut self, _btn: MouseButtonInput) {}
+    fn on_window_resized(&mut self, size: Extent2<u32>) {
+        self.reshape(size);
+    }
+    fn on_window_size_changed(&mut self, size: Extent2<u32>) {
+        self.reshape(size);
+    }
+}
 
 impl Scene {
-    pub fn handle_sdl2_event_before_new_tick(&mut self, event: &Event) {
-        match *event {
-            Event::Window { win_event, .. } => match win_event {
-                WindowEvent::Resized(w, h) => {
-                    self.reshape(Extent2::new(w as _, h as _));
-                },
-                WindowEvent::SizeChanged(w, h) => {
-                    self.reshape(Extent2::new(w as _, h as _));
-                },
-                _ => (),
-            },
-            _ => (),
-        };
-    }
     pub fn reshape(&mut self, window_size: Extent2<u32>) {
         for camera in self.cameras.values_mut() {
             // NOTE: Every camera might want to handle this differently
@@ -175,7 +177,7 @@ impl Scene {
     }
     pub fn debug_entity_id(&self, eid: EntityID) {
         let &Self {
-            allows_quitting: _, clear_color: _, entity_id_domain: _,
+            allows_quitting: _, wants_to_quit: _, clear_color: _, entity_id_domain: _,
             ref names, ref transforms, ref cameras, ref meshes, ref texts,
             ref pathshapes,
         } = self;
@@ -192,19 +194,14 @@ impl Scene {
     pub fn render(&mut self, mut frame: GlobalDataUpdatePack) {
         let g = &mut frame.g;
 
-        use ::sdl2::keyboard::Keycode;
-        if g.input.keyboard.key(Keycode::Left).was_just_pressed() {
-            g.hack_mode = HackMode::TwoStars
+        // Update stats text
+
+        {
+            let inspector_id = EntityID::from_raw(2);
+            let gui_text = self.texts.get_mut(&inspector_id).unwrap();
+            gui_text.text = format!("{:?}", g.fps_stats);
         }
-        if g.input.keyboard.key(Keycode::Right).was_just_pressed() {
-            g.hack_mode = HackMode::Masking
-        }
-        if g.input.keyboard.key(Keycode::Up).was_just_pressed() {
-            g.hack_mode = HackMode::Intersection
-        }
-        if g.input.keyboard.key(Keycode::Down).was_just_pressed() {
-            g.hack_mode = HackMode::RenderAllMeshes
-        };
+
 
         for (camera_eid, camera) in self.cameras.iter().map(|(id, c)| (id, &c.render)) {
             let camera_xform = &self.transforms[camera_eid].render;
@@ -358,131 +355,141 @@ impl Scene {
 
             // Render text overlay
 
-            unsafe {
-                gl::Disable(gl::DEPTH_TEST);
-            }
-            let prog = &g.gl_text_program;
-            let mesh = &g.font_atlas_mesh;
-            prog.use_program();
-            mesh.vao.bind();
-            let _render_font_atlas = |font: &Font, texunit: grx::TextureUnit, color: Rgba<f32>| {
-                let vp = g.window_size.map(|x| x as f32);
-                let atlas_size = font.texture_size.map(|x| x as f32);
-                let model = Mat4::scaling_3d(2. * atlas_size.w/vp.w);
-                let mvp = proj * view * model;
-                prog.set_uniform_texture(texunit);
-                prog.set_uniform_color(color);
-                prog.set_uniform_mvp(&mvp);
-                prog.set_uniform_glyph_rect_pos(Vec2::zero());
-                prog.set_uniform_glyph_rect_size(Extent2::one());
-                prog.set_uniform_glyph_offset(Vec2::zero());
-                unsafe {
-                    gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
-                }
-            };
-            let render_some_text = |ss_pos: Vec2<i32>, text: &str, font: &Font, texunit: grx::TextureUnit, color: Rgba<f32>| {
-                let vp = g.window_size.map(|x| x as f32);
-                let atlas_size = font.texture_size.map(|x| x as f32);
-                prog.set_uniform_texture(texunit);
-                prog.set_uniform_color(color);
-                let world_start = Self::window_to_world(ss_pos, g, camera, camera_xform);
-                let mut adv = Vec2::<i16>::zero();
+            if g.should_render_debug_text {
 
-                for c in text.chars() {
-                    match c {
-                        '\n' => {
-                            adv.x = 0;
-                            adv.y += font.height as i16;
-                            continue;
-                        },
-                        ' ' => {
-                            adv += font.glyph_info[&' '].advance;
-                            continue;
-                        },
-                        '\t' => {
-                            adv += font.glyph_info[&' '].advance * 4;
-                            continue;
-                        },
-                        c if c.is_ascii_control() || c.is_ascii_whitespace() => {
-                            continue;
-                        },
-                        _ => (),
-                    };
-                    let c = if font.glyph_info.contains_key(&c) { c } else { '?' };
-                    let glyph = &font.glyph_info[&c];
-                    let mut rect = glyph.bounds.into_rect().map(
-                        |p| p as f32,
-                        |e| e as f32
-                    );
-                    rect.x /= atlas_size.w;
-                    rect.y /= atlas_size.h;
-                    rect.w /= atlas_size.w;
-                    rect.h /= atlas_size.h;
-                    let offset = glyph.offset.map(|x| x as f32) / Vec2::from(atlas_size);
-                    prog.set_uniform_glyph_rect_pos(rect.position());
-                    prog.set_uniform_glyph_rect_size(rect.extent());
-                    prog.set_uniform_glyph_offset(offset);
-                    let mut world_adv = adv.map(|x| x as f32) * 2. / vp.w;
-                    world_adv.y = -world_adv.y;
-                    let model = Mat4::scaling_3d(2. * atlas_size.w/vp.w)
-                        .translated_3d(world_start + world_adv);
+                unsafe {
+                    gl::Disable(gl::DEPTH_TEST);
+                }
+                let prog = &g.gl_text_program;
+                let mesh = &g.font_atlas_mesh;
+                prog.use_program();
+                mesh.vao.bind();
+                let _render_font_atlas = |font: &Font, texunit: grx::TextureUnit, color: Rgba<f32>| {
+                    let vp = g.window_size.map(|x| x as f32);
+                    let atlas_size = font.texture_size.map(|x| x as f32);
+                    let model = Mat4::scaling_3d(2. * atlas_size.w/vp.w);
                     let mvp = proj * view * model;
+                    prog.set_uniform_texture(texunit);
+                    prog.set_uniform_color(color);
                     prog.set_uniform_mvp(&mvp);
+                    prog.set_uniform_glyph_rect_pos(Vec2::zero());
+                    prog.set_uniform_glyph_rect_size(Extent2::one());
+                    prog.set_uniform_glyph_offset(Vec2::zero());
                     unsafe {
                         gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
                     }
-                    adv += glyph.advance;
-                }
-            };
+                };
+                let render_some_text = |ss_pos: Vec2<i32>, text: &str, font: &Font, texunit: grx::TextureUnit, color: Rgba<f32>| {
+                    let vp = g.window_size.map(|x| x as f32);
+                    let atlas_size = font.texture_size.map(|x| x as f32);
+                    prog.set_uniform_texture(texunit);
+                    prog.set_uniform_color(color);
+                    let world_start = Self::window_to_world(ss_pos, g, camera, camera_xform);
+                    let mut adv = Vec2::<i16>::zero();
 
-            for (text_eid, text) in self.texts.iter() {
-                let &GUIText {
-                    ref screen_space_offset, ref text, ref font, ref color,
-                    ref shadow_hack,
-                } = text;
-                let mut ss_pos = *screen_space_offset;
-                if let Some(xform) = self.transforms.get(text_eid) {
-                    ss_pos += Self::world_to_window(xform.render.position, g, camera, camera_xform);
+                    for c in text.chars() {
+                        match c {
+                            '\n' => {
+                                adv.x = 0;
+                                adv.y += font.height as i16;
+                                continue;
+                            },
+                            ' ' => {
+                                adv += font.glyph_info[&' '].advance;
+                                continue;
+                            },
+                            '\t' => {
+                                adv += font.glyph_info[&' '].advance * 4;
+                                continue;
+                            },
+                            c if c.is_ascii_control() || c.is_ascii_whitespace() => {
+                                continue;
+                            },
+                            _ => (),
+                        };
+                        let c = if font.glyph_info.contains_key(&c) { c } else { '?' };
+                        let glyph = &font.glyph_info[&c];
+                        let mut rect = glyph.bounds.into_rect().map(
+                            |p| p as f32,
+                            |e| e as f32
+                        );
+                        rect.x /= atlas_size.w;
+                        rect.y /= atlas_size.h;
+                        rect.w /= atlas_size.w;
+                        rect.h /= atlas_size.h;
+                        let offset = glyph.offset.map(|x| x as f32) / Vec2::from(atlas_size);
+                        prog.set_uniform_glyph_rect_pos(rect.position());
+                        prog.set_uniform_glyph_rect_size(rect.extent());
+                        prog.set_uniform_glyph_offset(offset);
+                        let mut world_adv = adv.map(|x| x as f32) * 2. / vp.w;
+                        world_adv.y = -world_adv.y;
+                        let model = Mat4::scaling_3d(2. * atlas_size.w/vp.w)
+                            .translated_3d(world_start + world_adv);
+                        let mvp = proj * view * model;
+                        prog.set_uniform_mvp(&mvp);
+                        unsafe {
+                            gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
+                        }
+                        adv += glyph.advance;
+                    }
+                };
+
+                for (text_eid, text) in self.texts.iter() {
+                    let &GUIText {
+                        ref screen_space_offset, ref text, ref font, ref color,
+                        ref shadow_hack,
+                    } = text;
+                    let mut ss_pos = *screen_space_offset;
+                    if let Some(xform) = self.transforms.get(text_eid) {
+                        ss_pos += Self::world_to_window(xform.render.position, g, camera, camera_xform);
+                    }
+                    let texunit = grx::TextureUnit::from(*font);
+                    let font = &g.fonts.fonts[font];
+                    if let &Some(ref color) = shadow_hack {
+                        let mut ss_pos = ss_pos;
+                        // PERF: This is a horrible way to do 1px text contour!
+                        ss_pos.x += 1;
+                        render_some_text(ss_pos, text, font, texunit, *color);
+                        ss_pos.y += 1;
+                        render_some_text(ss_pos, text, font, texunit, *color);
+                        /* Comment, otherwise we lose 10 FPS
+                        ss_pos.x -= 1;
+                        render_some_text(ss_pos, text, font, texunit, *color);
+                        ss_pos.x -= 1;
+                        render_some_text(ss_pos, text, font, texunit, *color);
+                        ss_pos.y += 1;
+                        render_some_text(ss_pos, text, font, texunit, *color);
+                        ss_pos.y += 1;
+                        render_some_text(ss_pos, text, font, texunit, *color);
+                        ss_pos.x += 1;
+                        render_some_text(ss_pos, text, font, texunit, *color);
+                        ss_pos.x += 1;
+                        render_some_text(ss_pos, text, font, texunit, *color);
+                        */
+                    }
+                    render_some_text(ss_pos, text, font, texunit, *color);
                 }
-                let texunit = grx::TextureUnit::from(*font);
-                let font = &g.fonts.fonts[font];
-                if let &Some(ref color) = shadow_hack {
-                    let mut ss_pos = ss_pos;
-                    // PERF: This is a horrible way to do 1px text contour!
-                    ss_pos.x += 1;
-                    render_some_text(ss_pos, text, font, texunit, *color);
-                    ss_pos.y += 1;
-                    render_some_text(ss_pos, text, font, texunit, *color);
-                    /* Comment, otherwise we lose 10 FPS
-                    ss_pos.x -= 1;
-                    render_some_text(ss_pos, text, font, texunit, *color);
-                    ss_pos.x -= 1;
-                    render_some_text(ss_pos, text, font, texunit, *color);
-                    ss_pos.y += 1;
-                    render_some_text(ss_pos, text, font, texunit, *color);
-                    ss_pos.y += 1;
-                    render_some_text(ss_pos, text, font, texunit, *color);
-                    ss_pos.x += 1;
-                    render_some_text(ss_pos, text, font, texunit, *color);
-                    ss_pos.x += 1;
-                    render_some_text(ss_pos, text, font, texunit, *color);
-                    */
+
+                // Render text near mouse pointer
+
+                let fontname = FontName::Debug;
+                let font = &g.fonts.fonts[&fontname];
+                let texunit = grx::TextureUnit::from(fontname);
+                let text = format!("{}\n{}",
+                    g.mouse_position,
+                    Vec2::<f32>::from(Self::mouse_world_pos(g, camera, camera_xform))
+                );
+                let mpos = g.mouse_position.map(|x| x as i32);
+                {
+                    let mut mpos = mpos;
+                    mpos.x += 1;
+                    render_some_text(mpos, &text, font, texunit, Rgba::black());
+                    mpos.y += 1;
+                    render_some_text(mpos, &text, font, texunit, Rgba::black());
                 }
-                render_some_text(ss_pos, text, font, texunit, *color);
+                render_some_text(mpos, &text, font, texunit, Rgba::white());
+
             }
-            let fontname = FontName::Debug;
-            let font = &g.fonts.fonts[&fontname];
-            let texunit = grx::TextureUnit::from(fontname);
-            let text = format!("{}\n{}", g.input.mouse.position, Vec2::<f32>::from(Self::mouse_world_pos(g, camera, camera_xform)));
-            let mpos = g.input.mouse.position.map(|x| x as i32);
-            {
-                let mut mpos = mpos;
-                mpos.x += 1;
-                render_some_text(mpos, &text, font, texunit, Rgba::black());
-                mpos.y += 1;
-                render_some_text(mpos, &text, font, texunit, Rgba::black());
-            }
-            render_some_text(mpos, &text, font, texunit, Rgba::white());
 
             /*
             let text = "This is some SAMPLE TEXT!!1!11\n\t(Glad that it works.) 0123456789@$";
@@ -511,7 +518,7 @@ impl Scene {
     }
 
     pub fn mouse_world_pos(g: &Global, camera: &OrthographicCamera, camera_xform: &Transform3D) -> Vec3<f32> {
-        Self::window_to_world(g.input.mouse.position.map(|x| x as i32), g, camera, camera_xform)
+        Self::window_to_world(g.mouse_position.map(|x| x as i32), g, camera, camera_xform)
     }
 
     pub fn new_test_room(g: &Global) -> Self {
@@ -643,6 +650,7 @@ impl Scene {
         let slf = Self {
             entity_id_domain,
             names, transforms, cameras, meshes, texts, pathshapes,
+            wants_to_quit: false,
             allows_quitting: true,
             clear_color: Rgb::cyan(),
         };
