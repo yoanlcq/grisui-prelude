@@ -209,3 +209,57 @@ impl FontAtlasMesh {
         }
     }
 }
+
+
+#[derive(Debug)]
+pub struct Particles {
+    pub vertices: Vec<grx::ParticleRenderingVertex>,
+    pub vao: gx::Vao,
+    pub vbo: gx::Vbo,
+}
+
+impl Particles {
+    pub fn update_vbo(&self) {
+        self.vbo.set_data(&self.vertices, gx::UpdateHint::Often);
+    }
+    pub fn from_vertices(
+        prog: &grx::ParticleRenderingProgram,
+        label: &str,
+        vertices: Vec<grx::ParticleRenderingVertex>
+    ) -> Self
+    {
+        let vao = gx::Vao::new();
+        let vbo = gx::Vbo::new();
+        vbo.bind();
+        vbo.set_data(&vertices, gx::UpdateHint::Often);
+        vao.bind();
+        vbo.bind();
+        unsafe {
+            gl::EnableVertexAttribArray(prog.a_position());
+            gl::EnableVertexAttribArray(prog.a_color());
+            gl::EnableVertexAttribArray(prog.a_point_size());
+            gl::VertexAttribPointer(
+                prog.a_position(), 3, gl::FLOAT,
+                gl::FALSE as _, size_of::<grx::ParticleRenderingVertex>() as _,
+                ptr::null()
+            );
+            gl::VertexAttribPointer(
+                prog.a_color(), 4, gl::FLOAT,
+                gl::FALSE as _, size_of::<grx::ParticleRenderingVertex>() as _,
+                ptr::null::<GLvoid>().offset(3*size_of::<f32>() as isize)
+            );
+            gl::VertexAttribPointer(
+                prog.a_point_size(), 1, gl::FLOAT,
+                gl::FALSE as _, size_of::<grx::ParticleRenderingVertex>() as _,
+                ptr::null::<GLvoid>().offset(7*size_of::<f32>() as isize)
+            );
+        }
+        vao.set_label(&CString::new(label.to_owned() + " VAO").unwrap().into_bytes_with_nul());
+        vbo.set_label(&CString::new(label.to_owned() + " VBO").unwrap().into_bytes_with_nul());
+
+        Self {
+            vertices, vbo, vao,
+        }
+    }
+}
+

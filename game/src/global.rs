@@ -44,6 +44,7 @@ pub struct Global {
     pub video: VideoSubsystem,
     pub window: Window,
     pub gl_context: GLContext,
+    pub gl_particle_rendering_program: grx::ParticleRenderingProgram,
     pub gl_simple_color_program: grx::SimpleColorProgram,
     pub gl_text_program: grx::TextProgram,
     pub fonts: Fonts,
@@ -298,6 +299,7 @@ impl Default for Global {
 
         let gl_simple_color_program = grx::SimpleColorProgram::new();
         let gl_text_program = grx::TextProgram::new();
+        let gl_particle_rendering_program = grx::ParticleRenderingProgram::new();
 
         let mut path_to_fonts = path_to_res.clone();
         path_to_fonts.push("fonts");
@@ -361,6 +363,7 @@ impl Default for Global {
             sdl, video, window, gl_context, 
             gl_simple_color_program,
             gl_text_program,
+            gl_particle_rendering_program,
             fonts,
 
             font_atlas_mesh,
@@ -402,7 +405,10 @@ impl_debug_for_global!{
     fields: {
         fps_stats,
         path_to_res, path_to_saves,
-        video, gl_simple_color_program, gl_text_program,
+        video,
+        gl_simple_color_program,
+        gl_text_program,
+        gl_particle_rendering_program,
         fonts,
 
         font_atlas_mesh,

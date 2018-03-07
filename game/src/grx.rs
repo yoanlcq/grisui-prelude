@@ -240,3 +240,113 @@ void main() {
     }
 }
 
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct ParticleRenderingProgram {
+    program: gx::Program,
+    u_mvp: GLint,
+    a_position: GLuint,
+    a_color: GLuint,
+    a_point_size: GLuint,
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ParticleRenderingVertex {
+    pub position: Vec3<f32>,
+    pub color: Rgba<f32>,
+    pub point_size: f32,
+}
+assert_eq_size!(particle_size; ParticleRenderingVertex, [f32; 8]);
+
+impl ParticleRenderingProgram {
+
+    const VS: &'static [u8] = b"
+#version 130
+
+uniform mat4 u_mvp;
+
+in vec3 a_position;
+in vec4 a_color;
+in float a_point_size;
+
+out vec4 v_color;
+
+void main() {
+    v_color = a_color;
+    vec4 pos = u_mvp * vec4(a_position, 1);
+    gl_PointSize = a_point_size;
+    gl_Position = pos;
+}
+\0";
+
+    const FS: &'static [u8] = b"
+#version 130
+
+in vec4 v_color;
+
+out vec4 f_color;
+
+void main() {
+    vec2 from_center = gl_PointCoord - vec2(0.5f);
+    float d = length(from_center);
+    if(d > 0.5f)
+        discard;
+    f_color = v_color;
+}
+\0";
+
+    pub fn a_position(&self) -> GLuint {
+        self.a_position
+    }
+    pub fn a_color(&self) -> GLuint {
+        self.a_color
+    }
+    pub fn a_point_size(&self) -> GLuint {
+        self.a_point_size
+    }
+    pub fn new() -> Self {
+        let vs = match gx::VertexShader::from_source(Self::VS) {
+            Ok(i) => i,
+            Err(s) => {
+                error!("Failed to compile vertex shader:\n{}", s);
+                panic!(s)
+            },
+        };
+        vs.set_label(b"ParticleRenderingProgram Vertex Shader");
+        let fs = match gx::FragmentShader::from_source(Self::FS) {
+            Ok(i) => i,
+            Err(s) => {
+                error!("Failed to compile fragment shader:\n{}", s);
+                panic!(s)
+            },
+        };
+        fs.set_label(b"ParticleRenderingProgram Fragment Shader");
+        let program = match gx::Program::from_vert_frag(&vs, &fs) {
+            Ok(i) => i,
+            Err(s) => {
+                error!("Failed to link GL program:\n{}", s);
+                panic!()
+            },
+        };
+        program.set_label(b"ParticleRenderingProgram Program");
+
+        let a_position = program.attrib_location(b"a_position\0").unwrap() as _;
+        let a_color = program.attrib_location(b"a_color\0").unwrap() as _;
+        let a_point_size = program.attrib_location(b"a_point_size\0").unwrap() as _;
+        let u_mvp = program.uniform_location(b"u_mvp\0").unwrap();
+
+        Self {
+            program, u_mvp, a_position, a_color, a_point_size,
+        }
+    }
+    pub fn use_program(&self, mvp: &Mat4<f32>) {
+        self.program.use_program();
+        self.set_uniform_mvp(mvp);
+    }
+    pub fn set_uniform_mvp(&self, mvp: &Mat4<f32>) {
+        self.program.set_uniform_mat4(self.u_mvp, &[*mvp]);
+    }
+}
+
+

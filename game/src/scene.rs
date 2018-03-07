@@ -1,6 +1,6 @@
 use std::ops::{Index, IndexMut};
 use ids::*;
-use v::{Rgb, Vec2, Extent2, Rect, Lerp, Mat4, Vec3, Rgba};
+use v::{Rgb, Vec2, Extent2, Rect, Lerp, Mat4, Vec3, Rgba, Simd3, Aabb};
 use transform::Transform3D;
 use camera::OrthographicCamera;
 use gl;
@@ -9,7 +9,7 @@ use duration_ext::DurationExt;
 use gx;
 use grx;
 use fonts::{Font, FontName};
-use mesh::Mesh;
+use mesh::{self, Mesh};
 use events::{Sdl2EventSubscriber, KeyInput, MouseButtonInput};
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -32,7 +32,160 @@ pub struct Scene {
     pub meshes: EntityIDMap<MeshID>,
     pub texts: EntityIDMap<GUIText>,
     pub pathshapes: EntityIDMap<PathShape>,
+    pub phy: phy::Phy,
 }
+
+// TODO: draw links with GL_LINES.
+// TODO: Implement dampening factor (z) in springs integration.
+// TODO: Somehow make gravity separate (i.e have multiple gravities?)
+//
+// NOTE: Code du LeapFrog des particules:
+// self.vit += dt/self.m*self.frc
+// self.pos += dt*self.vit
+// self.frc = Vec3:zero()
+//
+// NOTE: structure liaisons:
+// self.M1
+// self.M2
+// self.frc
+// self.col
+// self.l = distance(M1, M2)
+//
+// liaison: setup:
+// self.M1.frc += self.frc
+// self.M2.frc += self.frc
+//
+// ressort: setup:
+// d = max(epsilon, distance(m1, m2)) // distance inter-masses
+// e = 1. - self.l / d  // élongation
+// // force de rappel
+// self.frc = self.k * e * (vecteur m1 m2)
+// Lisaison.setup(self)
+//
+// algo ressort :
+// d = distance(m1 m2);
+// f = k * (1 - l/d) * (vecteur m1 m2)
+// m1.frc += f;
+// m2.frc -= f;
+//
+// NOTE(potentiel): La gravité c'est une liaison mais elle n'a qu'un m1, et self.frc = g.
+
+pub mod phy {
+
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct Phy {
+        pub gfx_particles: mesh::Particles,
+        pub gfx_aabb: Mesh,
+        pub simulation: SimStates<Simulation>,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct Simulation {
+        pub integrator: Integrator,
+        pub g: Simd3<f32>,
+        pub air_resistance: f32,
+        pub rebound_vel_factor: f32,
+        pub friction_vel_factor: f32,
+        pub aabb: Aabb<f32>,
+
+        pub particles: Particles,
+        pub springs: Springs,
+    }
+    #[derive(Debug, Default, Clone)]
+    pub struct Particles {
+        pub frozen_start_index: usize,
+        pub pos: Vec<Simd3<f32>>, // position
+        pub vel: Vec<Simd3<f32>>, // velocity
+        pub frc: Vec<Simd3<f32>>, // force
+        pub m: Vec<f32>, // mass
+    }
+    #[derive(Debug, Default, Clone)]
+    pub struct Springs {
+        pub m1: Vec<usize>,
+        pub m2: Vec<usize>,
+        pub l: Vec<f32>,        // rest length
+        pub k: Vec<f32>,       // stiffness constant (aka. spring constant)
+    }
+
+    impl Default for Simulation {
+        fn default() -> Self {
+            Self {
+                integrator: Integrator(Simulation::leapfrog),
+                g: Simd3::down() * 0.98,
+                air_resistance: 0.,
+                rebound_vel_factor: 0.9,
+                friction_vel_factor: 0.98,
+                aabb: Aabb {
+                    min: Vec3::new(-0.9, -0.5, 0.),
+                    max: Vec3::new( 0.9,  0.5, 0.),
+                },
+                particles: Default::default(),
+                springs: Default::default(),
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct Integrator(pub fn(&mut Simulation, f32));
+
+    use ::std::fmt::{self, Debug, Formatter};
+    impl Debug for Integrator {
+        fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+            f.debug_tuple("Integrator").finish()
+        }
+    }
+
+    impl Simulation {
+        pub fn explicit_euler(&mut self, dt: f32) {
+            let p = &mut self.particles;
+            for i in 0..p.frozen_start_index {
+                p.pos[i] += p.vel[i] * dt;
+                p.vel[i] += (self.g - p.vel[i] * (self.air_resistance / p.m[i])) * dt;
+                // self.frc[i] = -self.vel[i] * (self.air_resistance / self.m[i]) - self.g;
+            }
+        }
+
+        pub fn implicit_euler(&mut self, dt: f32) {
+            let p = &mut self.particles;
+            for i in 0..p.frozen_start_index {
+                p.vel[i] = (p.vel[i] + self.g * dt) * (p.m[i] / (p.m[i] + dt*self.air_resistance));
+                p.pos[i] += p.vel[i] * dt;
+            }
+        }
+
+        pub fn leapfrog(&mut self, dt: f32) {
+            let p = &mut self.particles;
+            let s = &mut self.springs;
+
+            for i in 0..s.m1.len() {
+                let m1m2 = p.pos[s.m2[i]] - p.pos[s.m1[i]];
+                let d = m1m2.magnitude();
+                let f = m1m2 * s.k[i] * (1. - s.l[i] / d);
+                p.frc[s.m1[i]] += f;
+                p.frc[s.m2[i]] -= f;
+            }
+
+            let Aabb { min, max } = self.aabb;
+            for i in 0..p.frozen_start_index {
+                if p.vel[i].y < 0. && p.pos[i].y <= min.y { p.pos[i].y = min.y; p.vel[i].y *= -self.rebound_vel_factor; p.vel[i].x *= self.friction_vel_factor; }
+                if p.vel[i].y > 0. && p.pos[i].y >= max.y { p.pos[i].y = max.y; p.vel[i].y *= -self.rebound_vel_factor; p.vel[i].x *= self.friction_vel_factor; }
+                if p.vel[i].x < 0. && p.pos[i].x <= min.x { p.pos[i].x = min.x; p.vel[i].x *= -self.rebound_vel_factor; p.vel[i].x *= self.friction_vel_factor; }
+                if p.vel[i].x > 0. && p.pos[i].x >= max.x { p.pos[i].x = max.x; p.vel[i].x *= -self.rebound_vel_factor; p.vel[i].x *= self.friction_vel_factor; }
+            }
+
+            for i in 0..p.frozen_start_index {
+                p.frc[i] += self.g; // TODO: Get rid of that
+
+                p.vel[i] += p.frc[i] * dt / p.m[i];
+                p.pos[i] += p.vel[i] * dt;
+                p.frc[i] = Simd3::zero();
+            }
+        }
+    }
+}
+
 
 #[derive(Debug)]
 pub struct PathShape {
@@ -161,23 +314,50 @@ impl Scene {
         for xform in self.transforms.values_mut() {
             xform.previous = xform.current;
         }
+
+        let sim = &mut self.phy.simulation;
+        for i in 0..sim.previous.particles.pos.len() {
+            sim.previous.particles.pos[i] = sim.current.particles.pos[i];
+            sim.previous.particles.vel[i] = sim.current.particles.vel[i];
+            sim.previous.particles.frc[i] = sim.current.particles.frc[i];
+            sim.previous.particles.m  [i] = sim.current.particles.m  [i];
+        }
     }
     pub fn integrate(&mut self, tick: GlobalDataUpdatePack) {
         use ::std::f32::consts::PI;
         let dt = tick.dt.to_f64_seconds() as f32;
-        let _t = tick.t.to_f64_seconds() as f32;
+        let  t = tick. t.to_f64_seconds() as f32;
+        trace!("Integrating. t = {}, dt = {}", t, dt);
+
         let xform = &mut self.transforms.get_mut(&EntityID::from_raw(1)).unwrap().current;
         xform.orientation.rotate_z(PI * dt / 4.);
+
+        (self.phy.simulation.current.integrator.0)(&mut self.phy.simulation.current, dt);
+        trace!("Integration: {:?}", &self.phy.simulation.current.particles);
     }
     pub fn prepare_render_state_via_lerp_previous_current(&mut self, alpha: f64) {
         let alpha = alpha as f32;
         for xform in self.transforms.values_mut() {
             xform.render = Lerp::lerp(xform.previous, xform.current, alpha);
         }
+
+
+        let sim = &mut self.phy.simulation;
+        for i in 0..sim.render.particles.pos.len() {
+            sim.render.particles.pos[i] = Lerp::lerp(sim.previous.particles.pos[i], sim.current.particles.pos[i], alpha);
+            sim.render.particles.vel[i] = Lerp::lerp(sim.previous.particles.vel[i], sim.current.particles.vel[i], alpha);
+            sim.render.particles.frc[i] = Lerp::lerp(sim.previous.particles.frc[i], sim.current.particles.frc[i], alpha);
+            sim.render.particles.m  [i] = Lerp::lerp(sim.previous.particles.m  [i], sim.current.particles.m  [i], alpha);
+            self.phy.gfx_particles.vertices[i].position = sim.render.particles.pos[i].into();
+        }
+        self.phy.gfx_particles.update_vbo();
+        trace!("Render state: {:?}", &sim.render.particles);
     }
+
     pub fn debug_entity_id(&self, eid: EntityID) {
         let &Self {
             allows_quitting: _, wants_to_quit: _, clear_color: _, entity_id_domain: _,
+            phy: _,
             ref names, ref transforms, ref cameras, ref meshes, ref texts,
             ref pathshapes,
         } = self;
@@ -191,7 +371,9 @@ impl Scene {
         if let Some(x) = pathshapes.get(&eid) { cpts += &format!("\n- {:#?}", x); }
         info!("{}{}", &head, if cpts.is_empty() { " None at all!" } else { &cpts });
     }
+
     pub fn render(&mut self, mut frame: GlobalDataUpdatePack) {
+        trace!("Rendering");
         let g = &mut frame.g;
 
         // Update stats text
@@ -211,6 +393,34 @@ impl Scene {
             unsafe {
                 gl::Viewport(x as _, y as _, w as _, h as _);
             }
+
+
+            {
+                // PHY: Render particles
+                unsafe {
+                    gl::Enable(gl::VERTEX_PROGRAM_POINT_SIZE);
+                    gl::Enable(gl::PROGRAM_POINT_SIZE);
+                    gl::Enable(0x8861); // gl::POINT_SPRITE
+                }
+                let model = Mat4::identity();
+                let mvp = proj * view * model;
+
+                g.gl_particle_rendering_program.use_program(&mvp);
+                self.phy.gfx_particles.vao.bind();
+                unsafe {
+                    gl::DrawArrays(gl::POINTS, 0, self.phy.gfx_particles.vertices.len() as _);
+                }
+
+                // PHY: Draw AABB
+                g.gl_simple_color_program.use_program(&mvp);
+                self.phy.gfx_aabb.vao.bind();
+                unsafe {
+                    gl::LineWidth(2.);
+                    gl::DrawArrays(gl::LINE_LOOP, 0, self.phy.gfx_aabb.vertices.len() as _);
+                }
+            }
+
+
 
             g.gl_simple_color_program.use_program(&Mat4::identity());
 
@@ -647,12 +857,91 @@ impl Scene {
             ],
         });
 
+
+
+        let frozen_particle_count = 3;
+        let unfrozen_particle_count = 3;
+        let mut simulation = phy::Simulation::default();
+
+        for i in 0..unfrozen_particle_count {
+            simulation.particles.pos.push(Simd3::new((i as f32 - 1.5) / 1.5, -0.5, 0.));
+            simulation.particles.vel.push(Simd3::new(0.5 * (i+1) as f32, (i+1) as f32, 0.));
+            simulation.particles.frc.push(Simd3::zero());
+            simulation.particles.m.push(1.);
+        }
+
+        simulation.particles.frozen_start_index = unfrozen_particle_count as _;
+
+        for i in 0..frozen_particle_count {
+            simulation.particles.pos.push(Simd3::new((i as f32 - 1.) / 2., 0., 0.));
+            simulation.particles.vel.push(Simd3::zero());
+            simulation.particles.frc.push(Simd3::zero());
+            simulation.particles.m.push(::std::f32::INFINITY);
+        }
+
+        simulation.springs.m1.push(0);
+        simulation.springs.m2.push(1);
+        simulation.springs.l.push(0.02);
+        simulation.springs.k.push(4.);
+        // FIXME 0.1/(dt*dt) < k < 1/(dt*dt)
+        // FIXME 0 < dampening < 0.1/dt
+
+        let mut vertices = Vec::new();
+        for (i, pos) in simulation.particles.pos.iter().enumerate() {
+            let (point_size, color) = if i < unfrozen_particle_count {
+                let r = i as f32 / (unfrozen_particle_count as f32);
+                (16_f32, Rgba::new_opaque(r, 0., 0.))
+            } else {
+                let r = (i - unfrozen_particle_count) as f32 / (frozen_particle_count as f32);
+                (8_f32, Rgba::new_opaque(0., 0., r))
+            };
+            vertices.push(grx::ParticleRenderingVertex {
+                position: (*pos).into(),
+                color,
+                point_size,
+            });
+        }
+
+        // let gfx_aabb = unsafe { ::std::mem::zeroed() };
+        let gfx_aabb = Mesh::from_vertices(
+            &g.gl_simple_color_program,
+            "GfxAabb",
+            gx::UpdateHint::Never,
+            gl::LINE_LOOP,
+            {
+                let Aabb { min, max } = simulation.aabb;
+                vec![
+                    grx::SimpleColorVertex { position: Vec3::new(min.x, min.y, 0.), color: Rgba::red()  },
+                    grx::SimpleColorVertex { position: Vec3::new(max.x, min.y, 0.), color: Rgba::red()  },
+                    grx::SimpleColorVertex { position: Vec3::new(max.x, max.y, 0.), color: Rgba::red()  },
+                    grx::SimpleColorVertex { position: Vec3::new(min.x, max.y, 0.), color: Rgba::red()  },
+                ]
+            }
+        );
+
+        // XXX: Must initialize AFTER gfx_aabb. I HAVE NO IDEA WHY THOUGH
+        let gfx_particles = mesh::Particles::from_vertices(
+            &g.gl_particle_rendering_program,
+            "GfxParticles",
+            vertices
+        );
+
+        let simulation = SimStates {
+            previous: simulation.clone(),
+            current : simulation.clone(),
+            render  : simulation.clone(),
+        };
+
+
         let slf = Self {
             entity_id_domain,
             names, transforms, cameras, meshes, texts, pathshapes,
             wants_to_quit: false,
             allows_quitting: true,
             clear_color: Rgb::cyan(),
+            phy: phy::Phy {
+                simulation, gfx_particles, gfx_aabb,
+            },
         };
         slf.debug_entity_id(camera_id);
         slf.debug_entity_id(quad_id);
