@@ -20,6 +20,7 @@ pub struct Mesh {
 
 impl Mesh {
     pub fn update_vbo(&self) {
+        self.vbo.bind();
         self.vbo.set_data(&self.vertices, self.update_hint);
     }
     pub fn from_vertices(
@@ -51,6 +52,7 @@ impl Mesh {
                 ptr::null::<GLvoid>().offset(3*size_of::<f32>() as isize)
             );
         }
+        gx::Vao::unbind();
 
         Self {
             vertices, gl_topology, vbo, vao, update_hint,
@@ -204,6 +206,8 @@ impl FontAtlasMesh {
             );
         }
 
+        gx::Vao::unbind();
+
         Self {
             vertices, gl_topology, vbo, vao, update_hint,
         }
@@ -220,6 +224,7 @@ pub struct Particles {
 
 impl Particles {
     pub fn update_vbo(&self) {
+        self.vbo.bind();
         self.vbo.set_data(&self.vertices, gx::UpdateHint::Often);
     }
     pub fn from_vertices(
@@ -256,6 +261,8 @@ impl Particles {
         }
         vao.set_label(&CString::new(label.to_owned() + " VAO").unwrap().into_bytes_with_nul());
         vbo.set_label(&CString::new(label.to_owned() + " VBO").unwrap().into_bytes_with_nul());
+
+        gx::Vao::unbind();
 
         Self {
             vertices, vbo, vao,

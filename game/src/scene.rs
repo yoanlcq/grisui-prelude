@@ -1,5 +1,6 @@
 use std::ops::{Index, IndexMut};
 use ids::*;
+use v;
 use v::{Rgb, Vec2, Extent2, Rect, Lerp, Mat4, Vec3, Rgba, Simd3, Aabb};
 use transform::Transform3D;
 use camera::OrthographicCamera;
@@ -77,6 +78,7 @@ pub mod phy {
     #[derive(Debug)]
     pub struct Phy {
         pub gfx_particles: mesh::Particles,
+        pub gfx_springs: Mesh,
         pub gfx_aabb: Mesh,
         pub simulation: SimStates<Simulation>,
     }
@@ -105,8 +107,9 @@ pub mod phy {
     pub struct Springs {
         pub m1: Vec<usize>,
         pub m2: Vec<usize>,
-        pub l: Vec<f32>,        // rest length
-        pub k: Vec<f32>,       // stiffness constant (aka. spring constant)
+        pub l: Vec<f32>,  // rest length
+        pub k: Vec<f32>,  // stiffness constant (aka. spring constant)
+        pub kd: Vec<f32>, // damping constant
     }
 
     impl Default for Simulation {
@@ -159,13 +162,29 @@ pub mod phy {
             let p = &mut self.particles;
             let s = &mut self.springs;
 
+
             for i in 0..s.m1.len() {
                 let m1m2 = p.pos[s.m2[i]] - p.pos[s.m1[i]];
                 let d = m1m2.magnitude();
-                let f = m1m2 * s.k[i] * (1. - s.l[i] / d);
+                let dscale = 1.; // XXX ???
+                let scalar = dscale * s.k[i] * (d - s.l[i]);
+                let dir = m1m2 / d;
+                let s1 = p.vel[s.m1[i]].dot(dir);
+                let s2 = p.vel[s.m2[i]].dot(dir);
+                let damping_scalar = -s.kd[i] * (s1 + s2);
+                let f = dir * (scalar + damping_scalar);
                 p.frc[s.m1[i]] += f;
                 p.frc[s.m2[i]] -= f;
             }
+            /*
+            for i in 0..s.m1.len() {
+                let m1m2 = p.pos[s.m2[i]] - p.pos[s.m1[i]];
+                let d = m1m2.magnitude();
+                let f = m1m2 * s.k[i] * (1. - s.l[i] / v::partial_max(d, 0.001));
+                p.frc[s.m1[i]] += f;
+                p.frc[s.m2[i]] -= f;
+            }
+            */
 
             let Aabb { min, max } = self.aabb;
             for i in 0..p.frozen_start_index {
@@ -322,6 +341,13 @@ impl Scene {
             sim.previous.particles.frc[i] = sim.current.particles.frc[i];
             sim.previous.particles.m  [i] = sim.current.particles.m  [i];
         }
+        for i in 0..sim.previous.springs.m1.len() {
+            sim.previous.springs.m1[i] = sim.current.springs.m1[i];
+            sim.previous.springs.m2[i] = sim.current.springs.m2[i];
+            sim.previous.springs.l [i] = sim.current.springs.l [i];
+            sim.previous.springs.k [i] = sim.current.springs.k [i];
+            sim.previous.springs.kd[i] = sim.current.springs.kd[i];
+        }
     }
     pub fn integrate(&mut self, tick: GlobalDataUpdatePack) {
         use ::std::f32::consts::PI;
@@ -352,6 +378,17 @@ impl Scene {
         }
         self.phy.gfx_particles.update_vbo();
         trace!("Render state: {:?}", &sim.render.particles);
+
+        for i in 0..sim.render.springs.m1.len() {
+            sim.render.springs.m1[i] = Lerp::lerp(sim.previous.springs.m1[i], sim.current.springs.m1[i], alpha);
+            sim.render.springs.m2[i] = Lerp::lerp(sim.previous.springs.m2[i], sim.current.springs.m2[i], alpha);
+            sim.render.springs.l [i] = Lerp::lerp(sim.previous.springs.l [i], sim.current.springs.l [i], alpha);
+            sim.render.springs.k [i] = Lerp::lerp(sim.previous.springs.k [i], sim.current.springs.k [i], alpha);
+            sim.render.springs.kd[i] = Lerp::lerp(sim.previous.springs.kd[i], sim.current.springs.kd[i], alpha);
+            self.phy.gfx_springs.vertices[2*i + 0].position = sim.render.particles.pos[sim.render.springs.m1[i]].into();
+            self.phy.gfx_springs.vertices[2*i + 1].position = sim.render.particles.pos[sim.render.springs.m2[i]].into();
+        }
+        self.phy.gfx_springs.update_vbo();
     }
 
     pub fn debug_entity_id(&self, eid: EntityID) {
@@ -411,6 +448,13 @@ impl Scene {
                     gl::DrawArrays(gl::POINTS, 0, self.phy.gfx_particles.vertices.len() as _);
                 }
 
+                // PHY: Draw springs
+                g.gl_simple_color_program.use_program(&mvp);
+                self.phy.gfx_springs.vao.bind();
+                unsafe {
+                    gl::DrawArrays(gl::LINES, 0, self.phy.gfx_springs.vertices.len() as _);
+                }
+
                 // PHY: Draw AABB
                 g.gl_simple_color_program.use_program(&mvp);
                 self.phy.gfx_aabb.vao.bind();
@@ -430,6 +474,7 @@ impl Scene {
                 unsafe {
                     gl::DrawArrays(mesh.gl_topology, 0, mesh.vertices.len() as _);
                 }
+                gx::Vao::unbind();
             };
             let render_mesh = |mesh_eid: &EntityID, mesh: &Mesh| {
                 let mesh_xform = self.transforms[mesh_eid].render;
@@ -701,6 +746,8 @@ impl Scene {
 
             }
 
+            gx::Vao::unbind();
+
             /*
             let text = "This is some SAMPLE TEXT!!1!11\n\t(Glad that it works.) 0123456789@$";
             for (fontname, font) in g.fonts.fonts.iter() {
@@ -879,13 +926,6 @@ impl Scene {
             simulation.particles.m.push(::std::f32::INFINITY);
         }
 
-        simulation.springs.m1.push(0);
-        simulation.springs.m2.push(1);
-        simulation.springs.l.push(0.02);
-        simulation.springs.k.push(4.);
-        // FIXME 0.1/(dt*dt) < k < 1/(dt*dt)
-        // FIXME 0 < dampening < 0.1/dt
-
         let mut vertices = Vec::new();
         for (i, pos) in simulation.particles.pos.iter().enumerate() {
             let (point_size, color) = if i < unfrozen_particle_count {
@@ -919,6 +959,29 @@ impl Scene {
             }
         );
 
+        simulation.springs.m1.push(0);
+        simulation.springs.m2.push(4);
+        simulation.springs.l.push((simulation.particles.pos[0] - simulation.particles.pos[4]).magnitude());
+        simulation.springs.k.push(4.*8.);
+        simulation.springs.kd.push(1.);
+
+        simulation.springs.m1.push(0);
+        simulation.springs.m2.push(1);
+        simulation.springs.l.push((simulation.particles.pos[0] - simulation.particles.pos[1]).magnitude());
+        simulation.springs.k.push(4.*8.);
+        simulation.springs.kd.push(1.);
+        // FIXME 0.1/(dt*dt) < k < 1/(dt*dt)
+        // FIXME 0 < dampening < 0.1/dt
+
+        let gfx_springs = Mesh::from_vertices(
+            &g.gl_simple_color_program,
+            "GfxSprings",
+            gx::UpdateHint::Often,
+            gl::LINES,
+            (0..2*simulation.springs.m1.len()).map(|_| grx::SimpleColorVertex { position: Vec3::new(-1., -0.5, 0.), color: Rgba::red()  } ).collect()
+        );
+
+
         // XXX: Must initialize AFTER gfx_aabb. I HAVE NO IDEA WHY THOUGH
         let gfx_particles = mesh::Particles::from_vertices(
             &g.gl_particle_rendering_program,
@@ -940,7 +1003,7 @@ impl Scene {
             allows_quitting: true,
             clear_color: Rgb::cyan(),
             phy: phy::Phy {
-                simulation, gfx_particles, gfx_aabb,
+                simulation, gfx_particles, gfx_aabb, gfx_springs,
             },
         };
         slf.debug_entity_id(camera_id);
