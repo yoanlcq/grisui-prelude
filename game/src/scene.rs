@@ -1,6 +1,5 @@
 use std::ops::{Index, IndexMut};
 use ids::*;
-use v;
 use v::{Rgb, Vec2, Extent2, Rect, Lerp, Mat4, Vec3, Rgba, Simd3, Aabb};
 use transform::Transform3D;
 use camera::OrthographicCamera;
@@ -36,8 +35,6 @@ pub struct Scene {
     pub phy: phy::Phy,
 }
 
-// TODO: draw links with GL_LINES.
-// TODO: Implement dampening factor (z) in springs integration.
 // TODO: Somehow make gravity separate (i.e have multiple gravities?)
 //
 // NOTE: Code du LeapFrog des particules:
@@ -161,7 +158,6 @@ pub mod phy {
         pub fn leapfrog(&mut self, dt: f32) {
             let p = &mut self.particles;
             let s = &mut self.springs;
-
 
             for i in 0..s.m1.len() {
                 let m1m2 = p.pos[s.m2[i]] - p.pos[s.m1[i]];
@@ -906,24 +902,58 @@ impl Scene {
 
 
 
-        let frozen_particle_count = 3;
-        let unfrozen_particle_count = 3;
+        let frozen_particle_count = 1*8;
+        let unfrozen_particle_count = 7*8;
         let mut simulation = phy::Simulation::default();
 
         for i in 0..unfrozen_particle_count {
-            simulation.particles.pos.push(Simd3::new((i as f32 - 1.5) / 1.5, -0.5, 0.));
-            simulation.particles.vel.push(Simd3::new(0.5 * (i+1) as f32, (i+1) as f32, 0.));
+            let x = ((i%8) as f32 / 7.) - 0.5;
+            let y = 0.4 - 0.6 * (1. + (i / 8) as f32) / 8.;
+            simulation.particles.pos.push(Simd3::new(x, y, 0.));
+            simulation.particles.vel.push(Simd3::zero());
             simulation.particles.frc.push(Simd3::zero());
-            simulation.particles.m.push(1.);
+            simulation.particles.m.push(100.);
         }
 
         simulation.particles.frozen_start_index = unfrozen_particle_count as _;
 
         for i in 0..frozen_particle_count {
-            simulation.particles.pos.push(Simd3::new((i as f32 - 1.) / 2., 0., 0.));
+            let x = (i as f32 / 7.) - 0.5;
+            let y = 0.4;
+            simulation.particles.pos.push(Simd3::new(x, y, 0.));
             simulation.particles.vel.push(Simd3::zero());
             simulation.particles.frc.push(Simd3::zero());
             simulation.particles.m.push(::std::f32::INFINITY);
+        }
+
+        {
+            let mut attach = |i, j| {
+                simulation.springs.m1.push(i);
+                simulation.springs.m2.push(j);
+                simulation.springs.l.push((simulation.particles.pos[i] - simulation.particles.pos[j]).magnitude());
+                simulation.springs.k.push(8.*8.*8.);
+                simulation.springs.kd.push(2.);
+                // FIXME 0.1/(dt*dt) < k < 1/(dt*dt)
+                // FIXME 0 < dampening < 0.1/dt
+            };
+
+            for i in 0..7*8 {
+                if (i+1)%8 != 0 {
+                    attach(i, i+1);
+                    if i+8+1 < 7*8 {
+                        attach(i, i+8+1);
+                    }
+                }
+                if i+8 < 7*8 {
+                    attach(i, i+8);
+                }
+            }
+            for i in 7*8..8*8 {
+                attach(i, i%8 + 8);
+                if i < 8*8 - 1 {
+                    attach(i, i%8 + 1);
+                }
+            }
         }
 
         let mut vertices = Vec::new();
@@ -942,7 +972,21 @@ impl Scene {
             });
         }
 
-        // let gfx_aabb = unsafe { ::std::mem::zeroed() };
+        let gfx_springs = Mesh::from_vertices(
+            &g.gl_simple_color_program,
+            "GfxSprings",
+            gx::UpdateHint::Often,
+            gl::LINES,
+            (0..2*simulation.springs.m1.len()).map(|_| grx::SimpleColorVertex { position: Vec3::new(-1., -0.5, 0.), color: Rgba::red()  } ).collect()
+        );
+
+        // XXX: Must initialize AFTER gfx_aabb. I HAVE NO IDEA WHY THOUGH
+        let gfx_particles = mesh::Particles::from_vertices(
+            &g.gl_particle_rendering_program,
+            "GfxParticles",
+            vertices
+        );
+
         let gfx_aabb = Mesh::from_vertices(
             &g.gl_simple_color_program,
             "GfxAabb",
@@ -959,35 +1003,6 @@ impl Scene {
             }
         );
 
-        simulation.springs.m1.push(0);
-        simulation.springs.m2.push(4);
-        simulation.springs.l.push((simulation.particles.pos[0] - simulation.particles.pos[4]).magnitude());
-        simulation.springs.k.push(4.*8.);
-        simulation.springs.kd.push(1.);
-
-        simulation.springs.m1.push(0);
-        simulation.springs.m2.push(1);
-        simulation.springs.l.push((simulation.particles.pos[0] - simulation.particles.pos[1]).magnitude());
-        simulation.springs.k.push(4.*8.);
-        simulation.springs.kd.push(1.);
-        // FIXME 0.1/(dt*dt) < k < 1/(dt*dt)
-        // FIXME 0 < dampening < 0.1/dt
-
-        let gfx_springs = Mesh::from_vertices(
-            &g.gl_simple_color_program,
-            "GfxSprings",
-            gx::UpdateHint::Often,
-            gl::LINES,
-            (0..2*simulation.springs.m1.len()).map(|_| grx::SimpleColorVertex { position: Vec3::new(-1., -0.5, 0.), color: Rgba::red()  } ).collect()
-        );
-
-
-        // XXX: Must initialize AFTER gfx_aabb. I HAVE NO IDEA WHY THOUGH
-        let gfx_particles = mesh::Particles::from_vertices(
-            &g.gl_particle_rendering_program,
-            "GfxParticles",
-            vertices
-        );
 
         let simulation = SimStates {
             previous: simulation.clone(),
