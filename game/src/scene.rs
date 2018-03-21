@@ -159,6 +159,7 @@ pub mod phy {
             let p = &mut self.particles;
             let s = &mut self.springs;
 
+            /*
             for i in 0..s.m1.len() {
                 let m1m2 = p.pos[s.m2[i]] - p.pos[s.m1[i]];
                 let d = m1m2.magnitude();
@@ -172,15 +173,14 @@ pub mod phy {
                 p.frc[s.m1[i]] += f;
                 p.frc[s.m2[i]] -= f;
             }
-            /*
+            */
             for i in 0..s.m1.len() {
                 let m1m2 = p.pos[s.m2[i]] - p.pos[s.m1[i]];
                 let d = m1m2.magnitude();
-                let f = m1m2 * s.k[i] * (1. - s.l[i] / v::partial_max(d, 0.001));
+                let f = m1m2 * s.k[i] * (1. - s.l[i] / ::v::partial_max(d, 0.001));
                 p.frc[s.m1[i]] += f;
                 p.frc[s.m2[i]] -= f;
             }
-            */
 
             let Aabb { min, max } = self.aabb;
             for i in 0..p.frozen_start_index {
@@ -912,7 +912,7 @@ impl Scene {
             simulation.particles.pos.push(Simd3::new(x, y, 0.));
             simulation.particles.vel.push(Simd3::zero());
             simulation.particles.frc.push(Simd3::zero());
-            simulation.particles.m.push(100.);
+            simulation.particles.m.push(1.);
         }
 
         simulation.particles.frozen_start_index = unfrozen_particle_count as _;
@@ -931,7 +931,7 @@ impl Scene {
                 simulation.springs.m1.push(i);
                 simulation.springs.m2.push(j);
                 simulation.springs.l.push((simulation.particles.pos[i] - simulation.particles.pos[j]).magnitude());
-                simulation.springs.k.push(8.*8.*8.);
+                simulation.springs.k.push(8.*8.*8.*8.);
                 simulation.springs.kd.push(2.);
                 // FIXME 0.1/(dt*dt) < k < 1/(dt*dt)
                 // FIXME 0 < dampening < 0.1/dt
@@ -940,9 +940,11 @@ impl Scene {
             for i in 0..7*8 {
                 if (i+1)%8 != 0 {
                     attach(i, i+1);
+                    /*
                     if i+8+1 < 7*8 {
                         attach(i, i+8+1);
                     }
+                    */
                 }
                 if i+8 < 7*8 {
                     attach(i, i+8);
@@ -950,9 +952,11 @@ impl Scene {
             }
             for i in 7*8..8*8 {
                 attach(i, i%8 + 8);
+                /*
                 if i < 8*8 - 1 {
                     attach(i, i%8 + 1);
                 }
+                */
             }
         }
 
