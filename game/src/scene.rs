@@ -74,6 +74,7 @@ pub mod phy {
 
     #[derive(Debug)]
     pub struct Phy {
+        pub is_enabled: bool,
         pub gfx_particles: mesh::Particles,
         pub gfx_springs: Mesh,
         pub gfx_aabb: Mesh,
@@ -197,6 +198,53 @@ pub mod phy {
                 p.pos[i] += p.vel[i] * dt;
                 p.frc[i] = Simd3::zero();
             }
+        }
+    }
+
+    impl Phy {
+        pub fn replace_previous_state_by_current(&mut self) {
+            let sim = &mut self.simulation;
+            for i in 0..sim.previous.particles.pos.len() {
+                sim.previous.particles.pos[i] = sim.current.particles.pos[i];
+                sim.previous.particles.vel[i] = sim.current.particles.vel[i];
+                sim.previous.particles.frc[i] = sim.current.particles.frc[i];
+                sim.previous.particles.m  [i] = sim.current.particles.m  [i];
+            }
+            for i in 0..sim.previous.springs.m1.len() {
+                sim.previous.springs.m1[i] = sim.current.springs.m1[i];
+                sim.previous.springs.m2[i] = sim.current.springs.m2[i];
+                sim.previous.springs.l [i] = sim.current.springs.l [i];
+                sim.previous.springs.k [i] = sim.current.springs.k [i];
+                sim.previous.springs.kd[i] = sim.current.springs.kd[i];
+            }
+        }
+        pub fn integrate(&mut self, tick: &GlobalDataUpdatePack) {
+            let dt = tick.dt.to_f64_seconds() as f32;
+            (self.simulation.current.integrator.0)(&mut self.simulation.current, dt);
+            trace!("Integration: {:?}", &self.simulation.current.particles);
+        }
+        pub fn prepare_render_state_via_lerp_previous_current(&mut self, alpha: f32) {
+            let sim = &mut self.simulation;
+            for i in 0..sim.render.particles.pos.len() {
+                sim.render.particles.pos[i] = Lerp::lerp(sim.previous.particles.pos[i], sim.current.particles.pos[i], alpha);
+                sim.render.particles.vel[i] = Lerp::lerp(sim.previous.particles.vel[i], sim.current.particles.vel[i], alpha);
+                sim.render.particles.frc[i] = Lerp::lerp(sim.previous.particles.frc[i], sim.current.particles.frc[i], alpha);
+                sim.render.particles.m  [i] = Lerp::lerp(sim.previous.particles.m  [i], sim.current.particles.m  [i], alpha);
+                self.gfx_particles.vertices[i].position = sim.render.particles.pos[i].into();
+            }
+            self.gfx_particles.update_vbo();
+            trace!("Render state: {:?}", &sim.render.particles);
+
+            for i in 0..sim.render.springs.m1.len() {
+                sim.render.springs.m1[i] = Lerp::lerp(sim.previous.springs.m1[i], sim.current.springs.m1[i], alpha);
+                sim.render.springs.m2[i] = Lerp::lerp(sim.previous.springs.m2[i], sim.current.springs.m2[i], alpha);
+                sim.render.springs.l [i] = Lerp::lerp(sim.previous.springs.l [i], sim.current.springs.l [i], alpha);
+                sim.render.springs.k [i] = Lerp::lerp(sim.previous.springs.k [i], sim.current.springs.k [i], alpha);
+                sim.render.springs.kd[i] = Lerp::lerp(sim.previous.springs.kd[i], sim.current.springs.kd[i], alpha);
+                self.gfx_springs.vertices[2*i + 0].position = sim.render.particles.pos[sim.render.springs.m1[i]].into();
+                self.gfx_springs.vertices[2*i + 1].position = sim.render.particles.pos[sim.render.springs.m2[i]].into();
+            }
+            self.gfx_springs.update_vbo();
         }
     }
 }
@@ -330,20 +378,7 @@ impl Scene {
             xform.previous = xform.current;
         }
 
-        let sim = &mut self.phy.simulation;
-        for i in 0..sim.previous.particles.pos.len() {
-            sim.previous.particles.pos[i] = sim.current.particles.pos[i];
-            sim.previous.particles.vel[i] = sim.current.particles.vel[i];
-            sim.previous.particles.frc[i] = sim.current.particles.frc[i];
-            sim.previous.particles.m  [i] = sim.current.particles.m  [i];
-        }
-        for i in 0..sim.previous.springs.m1.len() {
-            sim.previous.springs.m1[i] = sim.current.springs.m1[i];
-            sim.previous.springs.m2[i] = sim.current.springs.m2[i];
-            sim.previous.springs.l [i] = sim.current.springs.l [i];
-            sim.previous.springs.k [i] = sim.current.springs.k [i];
-            sim.previous.springs.kd[i] = sim.current.springs.kd[i];
-        }
+        self.phy.replace_previous_state_by_current();
     }
     pub fn integrate(&mut self, tick: GlobalDataUpdatePack) {
         use ::std::f32::consts::PI;
@@ -354,37 +389,14 @@ impl Scene {
         let xform = &mut self.transforms.get_mut(&EntityID::from_raw(1)).unwrap().current;
         xform.orientation.rotate_z(PI * dt / 4.);
 
-        (self.phy.simulation.current.integrator.0)(&mut self.phy.simulation.current, dt);
-        trace!("Integration: {:?}", &self.phy.simulation.current.particles);
+        self.phy.integrate(&tick);
     }
     pub fn prepare_render_state_via_lerp_previous_current(&mut self, alpha: f64) {
         let alpha = alpha as f32;
         for xform in self.transforms.values_mut() {
             xform.render = Lerp::lerp(xform.previous, xform.current, alpha);
         }
-
-
-        let sim = &mut self.phy.simulation;
-        for i in 0..sim.render.particles.pos.len() {
-            sim.render.particles.pos[i] = Lerp::lerp(sim.previous.particles.pos[i], sim.current.particles.pos[i], alpha);
-            sim.render.particles.vel[i] = Lerp::lerp(sim.previous.particles.vel[i], sim.current.particles.vel[i], alpha);
-            sim.render.particles.frc[i] = Lerp::lerp(sim.previous.particles.frc[i], sim.current.particles.frc[i], alpha);
-            sim.render.particles.m  [i] = Lerp::lerp(sim.previous.particles.m  [i], sim.current.particles.m  [i], alpha);
-            self.phy.gfx_particles.vertices[i].position = sim.render.particles.pos[i].into();
-        }
-        self.phy.gfx_particles.update_vbo();
-        trace!("Render state: {:?}", &sim.render.particles);
-
-        for i in 0..sim.render.springs.m1.len() {
-            sim.render.springs.m1[i] = Lerp::lerp(sim.previous.springs.m1[i], sim.current.springs.m1[i], alpha);
-            sim.render.springs.m2[i] = Lerp::lerp(sim.previous.springs.m2[i], sim.current.springs.m2[i], alpha);
-            sim.render.springs.l [i] = Lerp::lerp(sim.previous.springs.l [i], sim.current.springs.l [i], alpha);
-            sim.render.springs.k [i] = Lerp::lerp(sim.previous.springs.k [i], sim.current.springs.k [i], alpha);
-            sim.render.springs.kd[i] = Lerp::lerp(sim.previous.springs.kd[i], sim.current.springs.kd[i], alpha);
-            self.phy.gfx_springs.vertices[2*i + 0].position = sim.render.particles.pos[sim.render.springs.m1[i]].into();
-            self.phy.gfx_springs.vertices[2*i + 1].position = sim.render.particles.pos[sim.render.springs.m2[i]].into();
-        }
-        self.phy.gfx_springs.update_vbo();
+        self.phy.prepare_render_state_via_lerp_previous_current(alpha);
     }
 
     pub fn debug_entity_id(&self, eid: EntityID) {
@@ -428,7 +440,7 @@ impl Scene {
             }
 
 
-            {
+            if self.phy.is_enabled {
                 // PHY: Render particles
                 unsafe {
                     gl::Enable(gl::VERTEX_PROGRAM_POINT_SIZE);
@@ -1023,6 +1035,7 @@ impl Scene {
             clear_color: Rgb::cyan(),
             phy: phy::Phy {
                 simulation, gfx_particles, gfx_aabb, gfx_springs,
+                is_enabled: false,
             },
         };
         slf.debug_entity_id(camera_id);
