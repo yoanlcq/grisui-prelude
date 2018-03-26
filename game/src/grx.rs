@@ -1,352 +1,208 @@
-use gx;
-use gx::GLResource;
+use std::fmt::{self, Display, Formatter};
+use std::ptr;
+use std::slice;
+use std::os::raw::c_void;
+use std::str;
+use sdl2::video::{GLProfile};
+use sdl2::video::gl_attr::GLAttr;
+use gl;
 use gl::types::*;
-use v::{Mat4, Vec2, Vec3, Rgba, Extent2};
+use gx;
 
-
-#[repr(u32)]
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum TextureUnit {
-    DebugFontAtlas = 1,
-    TalkFontAtlas = 2,
+pub fn configure_sdl2_gl_attr(gl_attr: GLAttr) {
+    gl_attr.set_context_profile(GLProfile::Core);
+    gl_attr.set_context_flags().debug().set();
+    //gl_attr.set_context_version(3, 2);
+    gl_attr.set_depth_size(24);
+    gl_attr.set_stencil_size(8);
+    gl_attr.set_multisample_buffers(1);
+    gl_attr.set_multisample_samples(4);
 }
 
-pub fn set_active_texture(i: TextureUnit) {
-    gx::set_active_texture(i as GLuint)
-}
 
-
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub struct SimpleColorProgram {
-    program: gx::Program,
-    u_mvp: GLint,
-    a_position: GLuint,
-    a_color: GLuint,
-}
-
-#[repr(C, packed)]
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct SimpleColorVertex {
-    pub position: Vec3<f32>,
-    pub color: Rgba<f32>,
-}
-assert_eq_size!(simple_color_vertex_size; SimpleColorVertex, [f32; 7]);
-
-impl SimpleColorProgram {
-
-    const VS: &'static [u8] = b"
-#version 130
-uniform mat4 u_mvp;
-in vec3 a_position;
-in vec4 a_color;
-out vec4 v_color;
-void main() {
-    gl_Position = u_mvp * vec4(a_position, 1.0);
-    v_color = a_color;
-}
-\0";
-
-
-    const FS: &'static [u8] = b"
-#version 130
-in vec4 v_color;
-out vec4 f_color;
-void main() {
-    f_color = v_color;
-}
-\0";
-
-
-    pub fn a_position(&self) -> GLuint {
-        self.a_position
+pub fn boot_gl() {
+    let summary = ContextSummary::default();
+    info!("--- Active OpenGL context settings ---\n{}", &summary);
+    if summary.has_khr_debug {
+        setup_khr_debug_output();
     }
-    pub fn a_color(&self) -> GLuint {
-        self.a_color
+    setup_gl_state();
+}
+
+fn setup_khr_debug_output() {
+    unsafe {
+        SET_LABEL = set_label_real as _;
+
+        gl::Enable(gl::DEBUG_OUTPUT);
+        gl::Enable(gl::DEBUG_OUTPUT_SYNCHRONOUS);
+        gl::DebugMessageCallback(grx_gl_dbg_msg_callback, ptr::null_mut());
+        gl::DebugMessageControl(
+            gl::DONT_CARE, gl::DONT_CARE, gl::DONT_CARE,
+            0, ptr::null_mut(), gl::TRUE
+        );
+        let msg = b"OpenGL debugging is set up.\0";
+        gl::DebugMessageInsert(
+            gl::DEBUG_SOURCE_APPLICATION, gl::DEBUG_TYPE_OTHER,
+            0x00000000, gl::DEBUG_SEVERITY_NOTIFICATION,
+            (msg.len()-1) as _, msg.as_ptr() as _
+        );
     }
-    pub fn new() -> Self {
-        let vs = match gx::VertexShader::from_source(Self::VS) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to compile vertex shader:\n{}", s);
-                panic!()
-            },
-        };
-        vs.set_label(b"SimpleColorProgram Vertex Shader");
-        let fs = match gx::FragmentShader::from_source(Self::FS) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to compile fragment shader:\n{}", s);
-                panic!()
-            },
-        };
-        fs.set_label(b"SimpleColorProgram Fragment Shader");
-        let program = match gx::Program::from_vert_frag(&vs, &fs) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to link GL program:\n{}", s);
-                panic!()
-            },
-        };
-        program.set_label(b"SimpleColorProgram Program");
+}
 
-        let a_position = program.attrib_location(b"a_position\0").unwrap() as _;
-        let a_color = program.attrib_location(b"a_color\0").unwrap() as _;
-        let u_mvp = program.uniform_location(b"u_mvp\0").unwrap();
+fn setup_gl_state() {
+    unsafe {
+        gl::Enable(gl::DEPTH_TEST);
+        gl::Enable(gl::BLEND);                                                         
+        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);  
+        // gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+        gl::ClearColor(1., 1., 0., 1.);
+    }
+}
 
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct ContextSummary {
+    pub gl_version: String,
+    pub gl_renderer: String,
+    pub gl_vendor: String,
+    pub glsl_version: String,
+    pub gl_major: u32,
+    pub gl_minor: u32,
+    pub ctxflags: GLuint,
+    pub ctxpmask: GLuint,
+    pub depth_bits: GLuint,
+    pub stencil_bits: GLuint,
+    pub double_buffer: bool,
+    pub stereo_buffers: bool,
+    pub has_khr_debug: bool,
+}
+
+impl Default for ContextSummary {
+    fn default() -> Self {
+        let gl_version = gx::gl_version_string();
+        let (gl_major, gl_minor) = gx::parse_version_string(&gl_version);
+        let gl_extensions = gx::gl_extensions_string();
+        let has_khr_debug = gl_major > 4 || (gl_major == 4 && gl_minor >= 3)
+            || gl_extensions.find("GL_KHR_debug").is_some();
         Self {
-            program, u_mvp, a_position, a_color,
+            gl_version,
+            gl_renderer: gx::gl_renderer_string(),
+            gl_vendor: gx::gl_vendor_string(),
+            glsl_version: gx::glsl_version_string(),
+            gl_major,
+            gl_minor,
+            ctxflags: gx::context_flags(),
+            ctxpmask: gx::context_profile_mask(),
+            depth_bits: gx::depth_bits(),
+            stencil_bits: gx::stencil_bits(),
+            double_buffer: gx::doublebuffer(),
+            stereo_buffers: gx::stereo(),
+            has_khr_debug,
         }
     }
-    pub fn use_program(&self, mvp: &Mat4<f32>) {
-        self.program.use_program();
-        self.set_uniform_mvp(mvp);
-    }
-    pub fn set_uniform_mvp(&self, mvp: &Mat4<f32>) {
-        self.program.set_uniform_mat4(self.u_mvp, &[*mvp]);
-    }
 }
 
 
+impl Display for ContextSummary {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let &Self {
+            ref gl_version,
+            ref gl_renderer,
+            ref gl_vendor,
+            ref glsl_version,
+            gl_major,
+            gl_minor,
+            ctxflags,
+            ctxpmask,
+            depth_bits,
+            stencil_bits,
+            double_buffer,
+            stereo_buffers,
+            has_khr_debug: _,
+        } = self;
 
-
-
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub struct TextProgram {
-    program: gx::Program,
-    u_glyph_rect_pos: GLint,
-    u_glyph_rect_size: GLint,
-    u_glyph_offset: GLint,
-    u_mvp: GLint,
-    u_texture: GLint,
-    u_color: GLint,
-    a_position: GLuint,
-    a_texcoords: GLuint,
-}
-
-#[repr(C, packed)]
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct TextVertex {
-    pub position: Vec2<f32>,
-    pub texcoords: Vec2<f32>,
-}
-assert_eq_size!(text_vertex_size; TextVertex, [f32; 4]);
-
-impl TextProgram {
-
-    const VS: &'static [u8] = b"
-#version 130
-uniform vec2 u_glyph_rect_pos;
-uniform vec2 u_glyph_rect_size;
-uniform vec2 u_glyph_offset;
-uniform mat4 u_mvp;
-in vec2 a_position;
-in vec2 a_texcoords;
-out vec2 v_texcoords;
-void main() {
-    vec2 pos = a_position;// + vec2(0.5, -0.5);
-    pos = pos * u_glyph_rect_size + u_glyph_offset;
-    gl_Position = u_mvp * vec4(pos, 0.0, 1.0);
-    v_texcoords = a_texcoords * u_glyph_rect_size + u_glyph_rect_pos;
-}
-\0";
-
-    const FS: &'static [u8] = b"
-#version 130
-uniform sampler2D u_texture;
-uniform vec4 u_color;
-in vec2 v_texcoords;
-out vec4 f_color;
-void main() {
-    vec4 c = u_color;
-    c.a = texture2D(u_texture, v_texcoords).r;
-    f_color = c;
-}
-\0";
-
-
-    pub fn a_position(&self) -> GLuint {
-        self.a_position
-    }
-    pub fn a_texcoords(&self) -> GLuint {
-        self.a_texcoords
-    }
-    pub fn new() -> Self {
-        let vs = match gx::VertexShader::from_source(Self::VS) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to compile vertex shader:\n{}", s);
-                panic!()
-            },
-        };
-        vs.set_label(b"TextProgram Vertex Shader");
-        let fs = match gx::FragmentShader::from_source(Self::FS) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to compile fragment shader:\n{}", s);
-                panic!()
-            },
-        };
-        fs.set_label(b"TextProgram Fragment Shader");
-        let program = match gx::Program::from_vert_frag(&vs, &fs) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to link GL program:\n{}", s);
-                panic!()
-            },
-        };
-        program.set_label(b"TextProgram Program");
-
-        let a_position = program.attrib_location(b"a_position\0").unwrap() as _;
-        let a_texcoords = program.attrib_location(b"a_texcoords\0").unwrap() as _;
-        let u_glyph_rect_pos = program.uniform_location(b"u_glyph_rect_pos\0").unwrap();
-        let u_glyph_rect_size = program.uniform_location(b"u_glyph_rect_size\0").unwrap();
-        let u_glyph_offset = program.uniform_location(b"u_glyph_offset\0").unwrap();
-        let u_mvp = program.uniform_location(b"u_mvp\0").unwrap();
-        let u_texture = program.uniform_location(b"u_texture\0").unwrap();
-        let u_color = program.uniform_location(b"u_color\0").unwrap();
-
-        Self {
-            program, a_position, a_texcoords,
-            u_glyph_rect_pos, u_glyph_rect_size, u_glyph_offset,
-            u_mvp, u_texture, u_color,
-        }
-    }
-    pub fn use_program(&self) {
-        self.program.use_program();
-        self.set_uniform_mvp(&Mat4::identity());
-        self.set_uniform_texture(TextureUnit::DebugFontAtlas);
-        self.set_uniform_color(Rgba::magenta());
-        self.set_uniform_glyph_rect_pos(Vec2::zero());
-        self.set_uniform_glyph_rect_size(Extent2::one());
-        self.set_uniform_glyph_offset(Vec2::zero());
-    }
-    pub fn set_uniform_mvp(&self, mvp: &Mat4<f32>) {
-        self.program.set_uniform_mat4(self.u_mvp, &[*mvp]);
-    }
-    pub fn set_uniform_texture(&self, tex: TextureUnit) {
-        self.program.set_uniform_1i(self.u_texture, &[tex as GLuint as GLint]);
-    }
-    pub fn set_uniform_color(&self, rgba: Rgba<f32>) {
-        self.program.set_uniform_4f(self.u_color, &[rgba.into_array()]);
-    }
-    pub fn set_uniform_glyph_rect_pos(&self, pos: Vec2<f32>) {
-        self.program.set_uniform_2f(self.u_glyph_rect_pos, &[pos.into_array()]);
-    }
-    pub fn set_uniform_glyph_rect_size(&self, size: Extent2<f32>) {
-        self.program.set_uniform_2f(self.u_glyph_rect_size, &[size.into_array()]);
-    }
-    pub fn set_uniform_glyph_offset(&self, offset: Vec2<f32>) {
-        self.program.set_uniform_2f(self.u_glyph_offset, &[offset.into_array()]);
+        writeln!(f,
+"Version             : {} (parsed: {}.{})
+Renderer            : {}
+Vendor              : {}
+GLSL version        : {}
+Profile flags       : {} (bits: 0b{:08b})
+Context flags       : {}{}{}{} (bits: 0b{:08b})
+Double buffering    : {}
+Stereo buffers      : {}
+Depth buffer bits   : {}
+Stencil buffer bits : {}",
+            gl_version, gl_major, gl_minor, gl_renderer, gl_vendor, glsl_version,
+            if ctxpmask & gl::CONTEXT_CORE_PROFILE_BIT != 0 {
+                "core"
+            } else if ctxpmask & gl::CONTEXT_COMPATIBILITY_PROFILE_BIT != 0 {
+                "compatibility"
+            } else { "" },
+            ctxpmask,
+            if ctxflags & gl::CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT != 0 { "forward_compatible " } else {""},
+            if ctxflags & gl::CONTEXT_FLAG_DEBUG_BIT != 0 { "debug " } else {""},
+            if ctxflags & gl::CONTEXT_FLAG_ROBUST_ACCESS_BIT != 0 { "robust_access " } else {""},
+            if ctxflags & gx::fix::CONTEXT_FLAG_NO_ERROR_BIT_KHR != 0 { "no_error " } else {""},
+            ctxflags,
+            double_buffer, stereo_buffers, depth_bits, stencil_bits,
+        )
     }
 }
 
-
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub struct ParticleRenderingProgram {
-    program: gx::Program,
-    u_mvp: GLint,
-    a_position: GLuint,
-    a_color: GLuint,
-    a_point_size: GLuint,
+fn set_label_stub(_ns: gx::Namespace, _id: GLuint, label: &[u8]) {
+    assert_eq!(0, *label.last().unwrap());
 }
-
-#[repr(C, packed)]
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct ParticleRenderingVertex {
-    pub position: Vec3<f32>,
-    pub color: Rgba<f32>,
-    pub point_size: f32,
-}
-assert_eq_size!(particle_size; ParticleRenderingVertex, [f32; 8]);
-
-impl ParticleRenderingProgram {
-
-    const VS: &'static [u8] = b"
-#version 130
-
-uniform mat4 u_mvp;
-
-in vec3 a_position;
-in vec4 a_color;
-in float a_point_size;
-
-out vec4 v_color;
-
-void main() {
-    v_color = a_color;
-    vec4 pos = u_mvp * vec4(a_position, 1);
-    gl_PointSize = a_point_size;
-    gl_Position = pos;
-}
-\0";
-
-    const FS: &'static [u8] = b"
-#version 130
-
-in vec4 v_color;
-
-out vec4 f_color;
-
-void main() {
-    vec2 from_center = gl_PointCoord - vec2(0.5f);
-    float d = length(from_center);
-    if(d > 0.5f)
-        discard;
-    f_color = v_color;
-}
-\0";
-
-    pub fn a_position(&self) -> GLuint {
-        self.a_position
-    }
-    pub fn a_color(&self) -> GLuint {
-        self.a_color
-    }
-    pub fn a_point_size(&self) -> GLuint {
-        self.a_point_size
-    }
-    pub fn new() -> Self {
-        let vs = match gx::VertexShader::from_source(Self::VS) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to compile vertex shader:\n{}", s);
-                panic!(s)
-            },
-        };
-        vs.set_label(b"ParticleRenderingProgram Vertex Shader");
-        let fs = match gx::FragmentShader::from_source(Self::FS) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to compile fragment shader:\n{}", s);
-                panic!(s)
-            },
-        };
-        fs.set_label(b"ParticleRenderingProgram Fragment Shader");
-        let program = match gx::Program::from_vert_frag(&vs, &fs) {
-            Ok(i) => i,
-            Err(s) => {
-                error!("Failed to link GL program:\n{}", s);
-                panic!()
-            },
-        };
-        program.set_label(b"ParticleRenderingProgram Program");
-
-        let a_position = program.attrib_location(b"a_position\0").unwrap() as _;
-        let a_color = program.attrib_location(b"a_color\0").unwrap() as _;
-        let a_point_size = program.attrib_location(b"a_point_size\0").unwrap() as _;
-        let u_mvp = program.uniform_location(b"u_mvp\0").unwrap();
-
-        Self {
-            program, u_mvp, a_position, a_color, a_point_size,
-        }
-    }
-    pub fn use_program(&self, mvp: &Mat4<f32>) {
-        self.program.use_program();
-        self.set_uniform_mvp(mvp);
-    }
-    pub fn set_uniform_mvp(&self, mvp: &Mat4<f32>) {
-        self.program.set_uniform_mat4(self.u_mvp, &[*mvp]);
+fn set_label_real(ns: gx::Namespace, id: GLuint, label: &[u8]) {
+    assert_eq!(0, *label.last().unwrap());
+    unsafe {
+        gl::ObjectLabel(ns as _, id, label.len() as _, label.as_ptr() as _);
     }
 }
+static mut SET_LABEL: fn(gx::Namespace, GLuint, &[u8]) = set_label_stub;
 
+
+extern "system" fn grx_gl_dbg_msg_callback(
+    source: GLenum, ty: GLenum, id: GLuint, severity: GLenum, 
+    length: GLsizei, message: *const GLchar, _user_param: *mut c_void,
+) {
+    let src = match source {
+        gl::DEBUG_SOURCE_API => "API",
+        gl::DEBUG_SOURCE_WINDOW_SYSTEM => "Window system",
+        gl::DEBUG_SOURCE_SHADER_COMPILER => "Shader compiler",
+        gl::DEBUG_SOURCE_THIRD_PARTY => "3rd party",
+        gl::DEBUG_SOURCE_APPLICATION => "Application",
+        gl::DEBUG_SOURCE_OTHER => "Other",
+        _ => "",
+    };
+    use log::Level;
+    let mut level = Level::Debug;
+    let t = match ty {
+        gl::DEBUG_TYPE_ERROR => { level = Level::Error; "Error" },
+        gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => { level = Level::Warn; "Deprecated behaviour" },
+        gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => { level = Level::Warn; "Undefined behaviour" },
+        gl::DEBUG_TYPE_PERFORMANCE => "Performance",
+        gl::DEBUG_TYPE_PORTABILITY => "Portability",
+        gl::DEBUG_TYPE_MARKER => "Command stream annotation",
+        gl::DEBUG_TYPE_PUSH_GROUP => "Push debug group",
+        gl::DEBUG_TYPE_POP_GROUP => "Pop debug group",
+        gl::DEBUG_TYPE_OTHER => "Other",
+        _ => "",
+    };
+    let sev = match severity {
+        gl::DEBUG_SEVERITY_HIGH         => "High",
+        gl::DEBUG_SEVERITY_MEDIUM       => "Medium",
+        gl::DEBUG_SEVERITY_LOW          => "Low",
+        gl::DEBUG_SEVERITY_NOTIFICATION => "Info",
+        _ => "",
+    };
+    let message = unsafe {
+        slice::from_raw_parts(message as *const u8, length as _)
+    };
+    let message = str::from_utf8(message).unwrap();
+    log!(
+        level,
+        "OpenGL debug message ({}, {}, {}, 0x{:X}) :\n{}",
+        sev, t, src, id, message
+    );
+}
 
