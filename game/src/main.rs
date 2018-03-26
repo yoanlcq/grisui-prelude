@@ -85,6 +85,7 @@ pub mod save;
 pub mod scene;
 pub mod transform;
 pub mod transform_ext;
+pub mod phy;
 
 // NOTE: The main loop is messy as hell, because it is inhabited by :
 // - An FPS counter;
