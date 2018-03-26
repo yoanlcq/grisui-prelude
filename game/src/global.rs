@@ -454,7 +454,8 @@ impl Sdl2EventSubscriber for Global {
     fn on_mouse_motion(&mut self, pos: Vec2<i32>) {
         self.mouse_position = pos;
     }
-    fn on_mouse_button(&mut self, _btn: MouseButtonInput) {}
+    fn on_mouse_button(&mut self, btn: MouseButtonInput) {
+    }
     fn on_window_resized(&mut self, size: Extent2<u32>) {
         self.reshape(size);
     }

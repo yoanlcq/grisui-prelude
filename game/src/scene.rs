@@ -10,7 +10,7 @@ use gx;
 use grx;
 use fonts::{Font, FontName};
 use mesh::Mesh;
-use events::{Sdl2EventSubscriber, KeyInput, MouseButtonInput};
+use events::{Sdl2EventSubscriber, KeyInput, Keycode, MouseButtonInput};
 use phy;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -26,6 +26,8 @@ pub struct Scene {
     pub wants_to_quit: bool,
     pub allows_quitting: bool,
     pub clear_color: Rgb<u8>,
+    pub mouse_position: Vec2<i32>,
+    pub phy: phy::Phy,
     pub entity_id_domain: EntityIDDomain,
     pub names: EntityIDMap<String>,
     pub transforms: EntityIDMap<SimStates<Transform3D>>,
@@ -33,7 +35,6 @@ pub struct Scene {
     pub meshes: EntityIDMap<MeshID>,
     pub texts: EntityIDMap<GUIText>,
     pub pathshapes: EntityIDMap<PathShape>,
-    pub phy: phy::Phy,
 }
 
 #[derive(Debug)]
@@ -139,10 +140,31 @@ impl Sdl2EventSubscriber for Scene {
         self.wants_to_quit = true;
     }
     fn on_text_input(&mut self, _text: &str) {}
-    fn on_key(&mut self, _key: KeyInput) {}
+
+    fn on_key(&mut self, key: KeyInput) {
+        match key.keycode {
+            Keycode::Y if key.is_down() => {
+                let buildshape_eid = &EntityID::from_raw(7);
+                let bs = self.pathshapes.get_mut(buildshape_eid).unwrap();
+                bs.polyfanmask_mesh.vertices.push(grx::SimpleColorVertex {
+                    position: Vec3::unit_x(), color: Rgba::green(),
+                });
+                gx::Vao::unbind();
+                bs.polyfanmask_mesh.update_vbo();
+            },
+            _ => (),
+        };
+    }
+
     fn on_scroll(&mut self, _delta: Vec2<i32>) {}
-    fn on_mouse_motion(&mut self, _pos: Vec2<i32>) {}
-    fn on_mouse_button(&mut self, _btn: MouseButtonInput) {}
+
+    fn on_mouse_motion(&mut self, pos: Vec2<i32>) {
+        self.mouse_position = pos;
+    }
+
+    fn on_mouse_button(&mut self, btn: MouseButtonInput) {
+    }
+
     fn on_window_resized(&mut self, size: Extent2<u32>) {
         self.reshape(size);
     }
@@ -150,6 +172,7 @@ impl Sdl2EventSubscriber for Scene {
         self.reshape(size);
     }
 }
+
 
 impl Scene {
     pub fn reshape(&mut self, window_size: Extent2<u32>) {
@@ -292,6 +315,7 @@ impl Scene {
             let bluedisk_eid = &EntityID::from_raw(4);
             let redshape_eid = &EntityID::from_raw(5);
             let blueshape_eid = &EntityID::from_raw(6);
+            let buildshape_eid = &EntityID::from_raw(7);
 
             match g.hack_mode {
                 HackMode::Masking => {
@@ -346,6 +370,7 @@ impl Scene {
                     };
                     render_shape(redshape_eid);
                     render_shape(blueshape_eid);
+                    render_shape(buildshape_eid);
                 },
                 HackMode::Intersection => {
                     // --- Experimenting with shape intersection
@@ -592,6 +617,7 @@ impl Scene {
         let bluedisk_id = EntityID::from_raw(4);
         let redshape_id = EntityID::from_raw(5);
         let blueshape_id = EntityID::from_raw(6);
+        let buildshape_id = EntityID::from_raw(7);
         entity_id_domain.include_id(camera_id);
         entity_id_domain.include_id(quad_id);
         entity_id_domain.include_id(inspector_id);
@@ -599,6 +625,7 @@ impl Scene {
         entity_id_domain.include_id(bluedisk_id);
         entity_id_domain.include_id(redshape_id);
         entity_id_domain.include_id(blueshape_id);
+        entity_id_domain.include_id(buildshape_id);
 
         names.insert(camera_id, "Main Camera".to_owned());
         let near = 0.01_f32;
@@ -697,6 +724,35 @@ impl Scene {
                 )
             ],
         });
+
+
+        names.insert(buildshape_id, "Build Shape".to_owned());
+        transforms.insert(buildshape_id, {
+            let mut xform = Transform3D::default();
+            xform.position.z = 1.;
+            xform.position.x = -0.5; //0.25;
+            xform.position.y = -0.5;
+            //xform.scale *= 2.;
+            xform.into()
+        });
+        pathshapes.insert(buildshape_id, PathShape {
+            polyfanmask_mesh: Mesh::from_vertices(
+                &gl_simple_color_program, "BuildShape PolyFanMask", gx::UpdateHint::Occasionally, gl::POINTS, vec![
+                    grx::SimpleColorVertex { position: Vec3::zero(), color: Rgba::red(), },
+                ]
+            ),
+            fill_color_quad: Mesh::new_filled_quad(
+                &gl_simple_color_program, "BuildShape Fill", gx::UpdateHint::Occasionally, Rgba::yellow(), 1.
+            ),
+            fill_gradient_strips: vec![
+                Mesh::new_gradient_strip(
+                    &gl_simple_color_program, "BuildShape Fill Gradient", gx::UpdateHint::Occasionally,
+                    (Vec3::unit_x()*-0.5, Rgba::green()), 
+                    (Vec3::unit_x()*0.5, Rgba::magenta())
+                )
+            ],
+        });
+
 
         let slf = Self {
             entity_id_domain,

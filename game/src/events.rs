@@ -46,8 +46,13 @@ pub struct KeyInput {
 pub struct MouseButtonInput {
     pub button: MouseButton,
     pub state: ButtonState,
+    pub mouse_position: Vec2<i32>,
 }
 
+impl KeyInput {
+    pub fn is_down(&self) -> bool { self.state.is_down() }
+    pub fn is_up(&self) -> bool { self.state.is_up() }
+}
 
 pub trait Sdl2EventSubscriber {
     fn on_wants_to_quit(&mut self);
