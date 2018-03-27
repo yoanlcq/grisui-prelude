@@ -37,7 +37,7 @@ fn main() {
         Duration::from_millis(50),
         Duration::from_millis(250),
     );
-    let mut fps_counter = FpsCounter::with_interval(Duration::from_millis(500));
+    let mut fps_counter = FpsCounter::with_interval(Duration::from_millis(2000));
     let desired_max_fps = 64_f64;
     let enable_fixing_broken_vsync = true;
 
@@ -70,7 +70,7 @@ fn main() {
             info!("New FPS stats: {}", &stats);
             if stats.fps() > desired_max_fps && enable_fixing_broken_vsync {
                 time.fps_ceil = Some(desired_max_fps);
-                info!("Broken VSync detected; FPS ceil is now set to {}", time.fps_ceil.unwrap());
+                warn!("Broken VSync detected; FPS ceil is now set to {}", time.fps_ceil.unwrap());
             }
         }
 

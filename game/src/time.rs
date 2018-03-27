@@ -39,15 +39,6 @@ impl TimeManager {
             fps_ceil: None,
         }
     }
-    pub fn end_main_loop_iteration(&mut self) {
-        if let Some(fps_ceil) = self.fps_ceil {
-            let a_frame = Duration::from_f64_seconds(1. / fps_ceil);
-            info!("self.frame_time={}, a_frame={}", self.frame_time.to_f64_seconds(), a_frame.to_f64_seconds());
-            if self.frame_time < a_frame {
-                ::std::thread::sleep(a_frame - self.frame_time);
-            }
-        }
-    }
     pub fn begin_main_loop_iteration(&mut self) {
         let new_time = Instant::now();
         self.frame_time = new_time - self.current_time;
@@ -67,6 +58,17 @@ impl TimeManager {
     }
     pub fn gfx_lerp_factor(&self) -> f64 {
         self.accumulator.to_f64_seconds() / self.dt.to_f64_seconds()
+    }
+    pub fn end_main_loop_iteration(&mut self) {
+        if let Some(fps_ceil) = self.fps_ceil {
+            let a_frame = Duration::from_f64_seconds(1. / fps_ceil);
+            let ftime = Instant::now() - self.current_time;
+            trace!("ftime={}, a_frame={}", ftime.to_f64_seconds(), a_frame.to_f64_seconds());
+            if ftime < a_frame {
+                trace!("Sleeping for {}", (a_frame - ftime).to_f64_seconds());
+                ::std::thread::sleep(a_frame - ftime);
+            }
+        }
     }
 }
 
