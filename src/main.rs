@@ -12,19 +12,23 @@ extern crate serde;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
-#[macro_use] #[allow(unused_imports)]
-extern crate id_realm;
 extern crate backtrace;
 
 pub mod early;
 pub mod duration_ext;
 pub mod time;
 pub mod game;
+pub mod platform;
+pub mod input;
 pub mod v;
+pub mod esystem;
 pub mod grx;
 pub mod gx;
+// pub mod ecs;
+// pub mod id;
 
 use std::time::Duration;
+use esystem::ESystem;
 use game::Game;
 use time::{TimeManager, FpsCounter};
 
@@ -47,7 +51,7 @@ fn main() {
         time.pump_physics_steps(|t, dt| {
             g.replace_previous_state_by_current();
             g.pump_events();
-            g.integrate(t, dt);
+            g.tick(t, dt);
         });
 
         if g.should_quit() {
@@ -56,9 +60,9 @@ fn main() {
 
         g.compute_gfx_state_via_lerp_previous_current(time.gfx_lerp_factor());
 
-        g.render_clear();
+        g.clear_draw();
         g.pump_events();
-        g.render();
+        g.draw();
         g.present();
     
         if g.should_quit() {

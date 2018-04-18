@@ -20,3 +20,22 @@ pub enum Usage {
     DynamicRead = gl::DYNAMIC_READ,
     DynamicCopy = gl::DYNAMIC_COPY,
 }
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Target {
+    Array = gl::ARRAY_BUFFER,
+    AtomicCounter = gl::ATOMIC_COUNTER_BUFFER,
+    CopyRead = gl::COPY_READ_BUFFER,
+    CopyWrite = gl::COPY_WRITE_BUFFER,
+    DispatchIndirect = gl::DISPATCH_INDIRECT_BUFFER,
+    DrawIndirect = gl::DRAW_INDIRECT_BUFFER,
+    ElementArray = gl::ELEMENT_ARRAY_BUFFER,
+    PixelPack = gl::PIXEL_PACK_BUFFER,
+    PixelUnpack = gl::PIXEL_UNPACK_BUFFER,
+    Query = gl::QUERY_BUFFER,
+    ShaderStorage = gl::SHADER_STORAGE_BUFFER,
+    Texture = gl::TEXTURE_BUFFER,
+    TransformFeedback = gl::TRANSFORM_FEEDBACK_BUFFER,
+    Uniform = gl::UNIFORM_BUFFER,
+}

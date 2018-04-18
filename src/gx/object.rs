@@ -205,5 +205,5 @@ macro_rules! specialized {
 
 specialized!{Texture2D Texture}
 specialized!{TextureCubeMap Texture}
-specialized!{VertexBuffer Buffer}
+// specialized!{VertexBuffer Buffer}
 

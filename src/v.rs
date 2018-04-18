@@ -8,4 +8,5 @@ pub use self::vek::mat::repr_c::column_major::{Mat4, Mat3, Mat2};
 pub use self::vek::quaternion::repr_c::Quaternion;
 pub use self::vek::ops::*;
 pub use self::vek::geom::*;
+pub use self::vek::bezier::repr_c::*;
 pub use self::vek::transform::repr_c::Transform;
