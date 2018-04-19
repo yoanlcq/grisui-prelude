@@ -5,6 +5,7 @@ use duration_ext::DurationExt;
 use system::{self, System, Message};
 use input::{Input, InputSystem};
 use platform::{Platform, PlatformSystem};
+use mesh;
 
 pub struct Game {
     pub wants_to_quit: Cell<bool>,
@@ -12,6 +13,9 @@ pub struct Game {
     pub input: Input,
     pub messages: RefCell<VecDeque<Message>>,
     pub systems: RefCell<Vec<Box<System>>>,
+
+    pub mesh_gl_program: mesh::Program,
+    pub cursor_mesh: mesh::Mesh,
 }
 
 pub struct QuitSystem;
@@ -34,8 +38,16 @@ impl Game {
         let systems = RefCell::new(vec![
             Box::new(InputSystem) as Box<System>,
             Box::new(PlatformSystem),
+            Box::new(mesh::CursorMeshSystem),
             Box::new(QuitSystem),
         ]);
+
+        let mesh_gl_program = mesh::Program::new();
+        let cursor_mesh = mesh::Mesh::from_vertices(
+            &mesh_gl_program, "Cursor Mesh", ::gx::BufferUsage::StaticDraw,
+            vec![mesh::Vertex { position: ::v::Vec3::zero(), color: ::v::Rgba::red(), }]
+        );
+
         info!("Game: ... Done initializing.");
         Self {
             wants_to_quit: Cell::new(false),
@@ -43,6 +55,8 @@ impl Game {
             input,
             messages,
             systems,
+            mesh_gl_program,
+            cursor_mesh,
         }
     }
     pub fn should_quit(&self) -> bool {
@@ -77,7 +91,7 @@ impl Game {
     pub fn draw(&self, p: f64) {
         self.platform.clear_draw();
         for s in self.systems.borrow_mut().iter_mut() {
-            trace!("Draw {}... alpha={}", s.name(), p);
+            trace!("Draw {}... lerp_factor={}", s.name(), p);
             s.draw(self, p);
         }
         self.platform.present();

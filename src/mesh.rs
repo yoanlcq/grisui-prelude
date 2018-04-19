@@ -1,264 +1,175 @@
-use std::ffi::CString;
+use std::mem;
 use std::ptr;
-use std::mem::size_of;
-use gl;
-use gl::types::*;
-use gx;
-use gx::GLResource;
+use std::ffi::CString;
+use gx::{self, Object};
 use grx;
-use v::{Vec2, Vec3, Rgba, Mat4, Quaternion};
-use transform::Transform3D;
+use gl::{self, types::*};
+use v::{Vec3, Rgba, Mat4};
+use game::Game;
+use system::*;
 
-/*
+pub struct CursorMeshSystem;
+
+impl System for CursorMeshSystem {
+    fn name(&self) -> &str { "CursorMeshSystem" }
+    fn draw(&mut self, g: &Game, _: f64) {
+        unsafe {
+            gl::PointSize(4.);
+            gl::UseProgram(g.mesh_gl_program.program.gl_id());
+            g.mesh_gl_program.set_uniform_mvp(&Mat4::identity());
+            gl::BindVertexArray(g.cursor_mesh.vao.gl_id());
+            gl::DrawArrays(gl::POINTS, 0, 1);
+            gl::BindVertexArray(0);
+            gl::UseProgram(0);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Mesh {
+    buffer_usage: gx::BufferUsage,
+    vertices: Vec<Vertex>,
+    vbo: gx::Buffer,
+    vao: gx::VertexArray,
+}
+
+
+#[repr(C, packed)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Vertex {
+    pub position: Vec3<f32>,
+    pub color: Rgba<f32>,
+}
+assert_eq_size!(vertex_size; Vertex, [f32; 7]);
+
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct Program {
+    program: gx::Program,
+    u_mvp: GLint,
+    a_position: GLuint,
+    a_color: GLuint,
+}
+
+
 impl Mesh {
-    pub fn update_vbo(&self, gx::buffer::Usage) {
-        self.vbo.bind();
-        self.vbo.set_data(&self.vertices, self.update_hint);
-    }
-    pub fn from_vertices(
-        prog: &grx::SimpleColorProgram,
-        label: &str,
-        update_hint: gx::UpdateHint,
-        gl_topology: GLenum,
-        vertices: Vec<grx::SimpleColorVertex>
-    ) -> Self
-    {
-        let vao = gx::Vao::new();
-        let vbo = gx::Vbo::new();
-        vao.bind();
-        vbo.bind();
-        vao.set_label(&CString::new(label.to_owned() + " VAO").unwrap().into_bytes_with_nul());
-        vbo.set_label(&CString::new(label.to_owned() + " VBO").unwrap().into_bytes_with_nul());
-        vbo.set_data(&vertices, update_hint);
-        unsafe {
-            gl::EnableVertexAttribArray(prog.a_position());
-            gl::EnableVertexAttribArray(prog.a_color());
-            gl::VertexAttribPointer(
-                prog.a_position(), 3, gl::FLOAT,
-                gl::FALSE as _, size_of::<grx::SimpleColorVertex>() as _,
-                ptr::null()
-            );
-            gl::VertexAttribPointer(
-                prog.a_color(), 4, gl::FLOAT,
-                gl::FALSE as _, size_of::<grx::SimpleColorVertex>() as _,
-                ptr::null::<GLvoid>().offset(3*size_of::<f32>() as isize)
-            );
-        }
-        gx::Vao::unbind();
-
-        Self {
-            vertices, gl_topology, vbo, vao, update_hint,
-        }
-    }
-    pub fn new_colored_quad(
-        prog: &grx::SimpleColorProgram,
-        label: &str,
-        update_hint: gx::UpdateHint,
-        bl: Rgba<f32>,
-        br: Rgba<f32>,
-        tr: Rgba<f32>,
-        tl: Rgba<f32>,
-        s: f32
-    ) -> Self
-    {
-        let vertices = vec![
-            grx::SimpleColorVertex { position: Vec3::new(-s, -s, 0.), color: bl },
-            grx::SimpleColorVertex { position: Vec3::new( s, -s, 0.), color: br },
-            grx::SimpleColorVertex { position: Vec3::new( s,  s, 0.), color: tr },
-            grx::SimpleColorVertex { position: Vec3::new(-s,  s, 0.), color: tl },
-        ];
-        Self::from_vertices(prog, label, update_hint, gl::TRIANGLE_FAN, vertices)
-    }
-    pub fn new_filled_unit_quad(prog: &grx::SimpleColorProgram, label: &str, update_hint: gx::UpdateHint, color: Rgba<f32>) -> Self {
-        Self::new_filled_quad(prog, label, update_hint, color, 0.5)
-    }
-    pub fn new_filled_quad(prog: &grx::SimpleColorProgram, label: &str, update_hint: gx::UpdateHint, color: Rgba<f32>, s: f32) -> Self {
-        Self::new_colored_quad(prog, label, update_hint, color, color, color, color, s)
-    }
-    pub fn new_unit_disk(prog: &grx::SimpleColorProgram, label: &str, update_hint: gx::UpdateHint, vcount: usize, color: Rgba<f32>) -> Self {
-        assert!(vcount > 2);
-        let mut vertices = Vec::with_capacity(vcount+2); // +1 for center, and +1 for closing vertex duplicate
-        vertices.push(grx::SimpleColorVertex { position: Vec3::zero(), color });
-        for i in 0..(vcount+1) {
-            use ::std::f32::consts::PI;
-            let a = 2.*PI * (i as f32 / (vcount as f32));
-            let position = Vec3::new(a.cos(), a.sin(), 0.);
-            let v = grx::SimpleColorVertex { position, color };
-            vertices.push(v);
-        }
-        Self::from_vertices(prog, label, update_hint, gl::TRIANGLE_FAN, vertices)
-    }
-    pub fn new_star_polyfanmask(prog: &grx::SimpleColorProgram, label: &str, update_hint: gx::UpdateHint) -> Self {
-        let color = Rgba::magenta();
-        let mut vertices = vec![
-            grx::SimpleColorVertex { position: Vec3::zero(), color },
-        ];
-        let r = 0.5;
-        let vcount = 5;
-        let offset = Vec3::new(r, r, 0.);
-        for i in 0..vcount {
-            use ::std::f32::consts::PI;
-            let a = 2.*PI * (i as f32 / (vcount as f32));
-            let position = Vec3::new(a.cos(), a.sin(), 0.) * r + offset;
-            let v = grx::SimpleColorVertex { position, color };
-            vertices.push(v);
-            let a = a + PI / (vcount as f32);
-            let position = Vec3::new(a.cos(), a.sin(), 0.) * r / 2. + offset;
-            let v = grx::SimpleColorVertex { position, color };
-            vertices.push(v);
-        }
-        let v = vertices[1];
-        vertices.push(v);
-        Self::from_vertices(prog, label, update_hint, gl::TRIANGLE_FAN, vertices)
-    }
-    pub fn new_gradient_strip(
-        prog: &grx::SimpleColorProgram, label: &str, update_hint: gx::UpdateHint,
-        left: (Vec3<f32>, Rgba<f32>),
-        right: (Vec3<f32>, Rgba<f32>)
-    ) -> Self 
-    {
-        let b = 1024_f32;
-        let s = 0.5_f32;
-        let mut vertices = [
-            (Vec3::new(-b,  b, 0.), left.1),
-            (Vec3::new(-b, -b, 0.), left.1),
-            (Vec3::new(-s,  b, 0.), left.1),
-            (Vec3::new(-s, -b, 0.), left.1),
-            (Vec3::new( s,  b, 0.), right.1),
-            (Vec3::new( s, -b, 0.), right.1),
-            (Vec3::new( b,  b, 0.), right.1),
-            (Vec3::new( b, -b, 0.), right.1),
-        ];
-
-        let (mut p0, mut p1) = (left.0, right.0);
-        p0.z = 0.;
-        p1.z = 0.;
-        let dir = (p1 - p0).normalized();
-        let rotation_z = dir.y.atan2(dir.x);
-        let position = (p0 + p1) / 2.;
-        let scale = Vec3::distance(p0, p1);
-        let mut scale = Vec3::broadcast(scale);
-        scale.z = 1.;
-        let m = Mat4::from(Transform3D {
-            position, scale,
-            orientation: Quaternion::rotation_z(rotation_z),
-        });
-
-        for v in &mut vertices {
-            v.0 = m.mul_point(v.0);
-            v.0.z = 0.;
-        }
-
-        let vertices: Vec<_> = vertices.iter().map(|&(position, color)| {
-            grx::SimpleColorVertex { position, color }
-        }).collect();
-        Self::from_vertices(prog, label, update_hint, gl::TRIANGLE_STRIP, vertices)
-    }
-}
-
-#[derive(Debug)]
-pub struct FontAtlasMesh {
-    pub vertices: Vec<grx::TextVertex>,
-    pub gl_topology: GLenum,
-    pub update_hint: gx::UpdateHint,
-    pub vao: gx::Vao,
-    pub vbo: gx::Vbo,
-}
-
-impl FontAtlasMesh {
-    pub fn new_font_atlas_unit_quad(prog: &grx::TextProgram, label: &str, update_hint: gx::UpdateHint) -> Self {
-        let vertices = vec![
-            grx::TextVertex { position: Vec2::new(0., -1.), texcoords: Vec2::new(0., 1.) },
-            grx::TextVertex { position: Vec2::new(1.,  0.), texcoords: Vec2::new(1., 0.) },
-            grx::TextVertex { position: Vec2::new(0.,  0.), texcoords: Vec2::new(0., 0.) },
-            grx::TextVertex { position: Vec2::new(0., -1.), texcoords: Vec2::new(0., 1.) },
-            grx::TextVertex { position: Vec2::new(1., -1.), texcoords: Vec2::new(1., 1.) },
-            grx::TextVertex { position: Vec2::new(1.,  0.), texcoords: Vec2::new(1., 0.) },
-        ];
-        let gl_topology = gl::TRIANGLES;
-        let vao = gx::Vao::new();
-        let vbo = gx::Vbo::new();
-        vao.bind();
-        vbo.bind();
-        vao.set_label(&CString::new(label.to_owned() + " VAO").unwrap().into_bytes_with_nul());
-        vbo.set_label(&CString::new(label.to_owned() + " VBO").unwrap().into_bytes_with_nul());
-        vbo.set_data(&vertices, update_hint);
-        unsafe {
-            gl::EnableVertexAttribArray(prog.a_position());
-            gl::EnableVertexAttribArray(prog.a_texcoords());
-            gl::VertexAttribPointer(
-                prog.a_position(), 2, gl::FLOAT,
-                gl::FALSE as _, size_of::<grx::TextVertex>() as _,
-                ptr::null()
-            );
-            gl::VertexAttribPointer(
-                prog.a_texcoords(), 2, gl::FLOAT,
-                gl::FALSE as _, size_of::<grx::TextVertex>() as _,
-                ptr::null::<GLvoid>().offset(2*size_of::<f32>() as isize)
-            );
-        }
-
-        gx::Vao::unbind();
-
-        Self {
-            vertices, gl_topology, vbo, vao, update_hint,
-        }
-    }
-}
-
-
-#[derive(Debug)]
-pub struct Particles {
-    pub vertices: Vec<grx::ParticleRenderingVertex>,
-    pub vao: gx::Vao,
-    pub vbo: gx::Vbo,
-}
-
-impl Particles {
     pub fn update_vbo(&self) {
-        self.vbo.bind();
-        self.vbo.set_data(&self.vertices, gx::UpdateHint::Often);
+        unsafe {
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo.gl_id());
+            gl::BufferData(gl::ARRAY_BUFFER, mem::size_of_val(self.vertices.as_slice()) as _, self.vertices.as_ptr() as _, self.buffer_usage as _);
+            gl::BindBuffer(gl::ARRAY_BUFFER, 0);
+        }
     }
+
     pub fn from_vertices(
-        prog: &grx::ParticleRenderingProgram,
+        prog: &Program,
         label: &str,
-        vertices: Vec<grx::ParticleRenderingVertex>
+        buffer_usage: gx::BufferUsage,
+        vertices: Vec<Vertex>
     ) -> Self
     {
-        let vao = gx::Vao::new();
-        let vbo = gx::Vbo::new();
-        vbo.bind();
-        vbo.set_data(&vertices, gx::UpdateHint::Often);
-        vao.bind();
-        vbo.bind();
+        let vao = gx::VertexArray::new();
+        let vbo = gx::Buffer::new();
         unsafe {
+            gl::BindVertexArray(vao.gl_id());
+            gl::BindBuffer(gl::ARRAY_BUFFER, vbo.gl_id());
+            grx::set_label(&vao, &CString::new(label.to_owned() + " VAO").unwrap().into_bytes_with_nul());
+            grx::set_label(&vbo, &CString::new(label.to_owned() + " VBO").unwrap().into_bytes_with_nul());
+
             gl::EnableVertexAttribArray(prog.a_position());
             gl::EnableVertexAttribArray(prog.a_color());
-            gl::EnableVertexAttribArray(prog.a_point_size());
             gl::VertexAttribPointer(
-                prog.a_position(), 3, gl::FLOAT,
-                gl::FALSE as _, size_of::<grx::ParticleRenderingVertex>() as _,
+                prog.a_position(), 3, gl::FLOAT, gl::FALSE as _,
+                mem::size_of::<Vertex>() as _,
                 ptr::null()
             );
             gl::VertexAttribPointer(
-                prog.a_color(), 4, gl::FLOAT,
-                gl::FALSE as _, size_of::<grx::ParticleRenderingVertex>() as _,
-                ptr::null::<GLvoid>().offset(3*size_of::<f32>() as isize)
+                prog.a_color(), 4, gl::FLOAT, gl::FALSE as _,
+                mem::size_of::<Vertex>() as _,
+                ptr::null::<GLvoid>().add(mem::size_of::<Vec3<f32>>())
             );
-            gl::VertexAttribPointer(
-                prog.a_point_size(), 1, gl::FLOAT,
-                gl::FALSE as _, size_of::<grx::ParticleRenderingVertex>() as _,
-                ptr::null::<GLvoid>().offset(7*size_of::<f32>() as isize)
-            );
+            gl::BindVertexArray(0);
+            gl::BindBuffer(gl::ARRAY_BUFFER, 0);
         }
-        vao.set_label(&CString::new(label.to_owned() + " VAO").unwrap().into_bytes_with_nul());
-        vbo.set_label(&CString::new(label.to_owned() + " VBO").unwrap().into_bytes_with_nul());
 
-        gx::Vao::unbind();
+        let mesh = Self {
+            vertices, vbo, vao, buffer_usage,
+        };
+        mesh.update_vbo();
+        mesh
+    }
+}
+
+impl Program {
+
+    const VS: &'static [u8] = b"
+#version 130
+uniform mat4 u_mvp;
+in vec3 a_position;
+in vec4 a_color;
+out vec4 v_color;
+void main() {
+    gl_Position = u_mvp * vec4(a_position, 1.0);
+    v_color = a_color;
+}
+\0";
+
+
+    const FS: &'static [u8] = b"
+#version 130
+in vec4 v_color;
+out vec4 f_color;
+void main() {
+    f_color = v_color;
+}
+\0";
+
+
+    pub fn a_position(&self) -> GLuint {
+        self.a_position
+    }
+    pub fn a_color(&self) -> GLuint {
+        self.a_color
+    }
+    pub fn new() -> Self {
+        let vs = match gx::VertexShader::try_from_source(Self::VS) {
+            Ok(i) => i,
+            Err(s) => {
+                error!("Failed to compile vertex shader:\n{}", s);
+                panic!()
+            },
+        };
+        grx::set_label(&vs, b"Mesh Vertex Shader");
+        let fs = match gx::FragmentShader::try_from_source(Self::FS) {
+            Ok(i) => i,
+            Err(s) => {
+                error!("Failed to compile fragment shader:\n{}", s);
+                panic!()
+            },
+        };
+        grx::set_label(&fs, b"Mesh Fragment Shader");
+        let program = match gx::Program::try_from_vert_frag(&vs, &fs) {
+            Ok(i) => i,
+            Err(s) => {
+                error!("Failed to link GL program:\n{}", s);
+                panic!()
+            },
+        };
+        grx::set_label(&program, b"Mesh Program");
+
+        let a_position = program.attrib_location(b"a_position\0").unwrap() as _;
+        let a_color = program.attrib_location(b"a_color\0").unwrap() as _;
+        let u_mvp = program.uniform_location(b"u_mvp\0").unwrap();
 
         Self {
-            vertices, vbo, vao,
+            program, u_mvp, a_position, a_color,
+        }
+    }
+    pub fn set_uniform_mvp(&self, m: &Mat4<f32>) {
+        let transpose = m.gl_should_transpose() as GLboolean;
+        unsafe {
+            gl::UniformMatrix4fv(self.u_mvp, 1, transpose, m.cols[0].as_ptr());
         }
     }
 }
-*/
+

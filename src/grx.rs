@@ -19,6 +19,15 @@ pub fn configure_sdl2_gl_attr(gl_attr: GLAttr) {
     gl_attr.set_multisample_samples(4);
 }
 
+fn setup_gl_state() {
+    unsafe {
+        gl::Enable(gl::DEPTH_TEST);
+        gl::Enable(gl::BLEND);                                                         
+        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);  
+        // gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+        gl::ClearColor(1., 1., 0., 1.);
+    }
+}
 
 pub fn boot_gl() {
     let summary = ContextSummary::default();
@@ -48,17 +57,6 @@ fn setup_khr_debug_output() {
         );
     }
 }
-
-fn setup_gl_state() {
-    unsafe {
-        gl::Enable(gl::DEPTH_TEST);
-        gl::Enable(gl::BLEND);                                                         
-        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);  
-        // gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
-        gl::ClearColor(1., 1., 0., 1.);
-    }
-}
-
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct ContextSummary {
@@ -142,23 +140,24 @@ Stencil buffer bits : {}",
             if ctxflags & gl::CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT != 0 { "forward_compatible " } else {""},
             if ctxflags & gl::CONTEXT_FLAG_DEBUG_BIT != 0 { "debug " } else {""},
             if ctxflags & gl::CONTEXT_FLAG_ROBUST_ACCESS_BIT != 0 { "robust_access " } else {""},
-            if ctxflags & gx::fix::CONTEXT_FLAG_NO_ERROR_BIT_KHR != 0 { "no_error " } else {""},
+            if ctxflags & gx::missing_bits::CONTEXT_FLAG_NO_ERROR_BIT_KHR != 0 { "no_error " } else {""},
             ctxflags,
             double_buffer, stereo_buffers, depth_bits, stencil_bits,
         )
     }
 }
 
-fn set_label_stub(_ns: gx::Namespace, _id: GLuint, label: &[u8]) {
-    assert_eq!(0, *label.last().unwrap());
-}
+fn set_label_stub(_ns: gx::Namespace, _id: GLuint, _label: &[u8]) {}
 fn set_label_real(ns: gx::Namespace, id: GLuint, label: &[u8]) {
-    assert_eq!(0, *label.last().unwrap());
     unsafe {
         gl::ObjectLabel(ns as _, id, label.len() as _, label.as_ptr() as _);
     }
 }
 static mut SET_LABEL: fn(gx::Namespace, GLuint, &[u8]) = set_label_stub;
+
+pub fn set_label<T: gx::Object>(o: &T, label: &[u8]) {
+    (unsafe { SET_LABEL })(T::NAMESPACE, o.gl_id(), label);
+}
 
 
 extern "system" fn grx_gl_dbg_msg_callback(

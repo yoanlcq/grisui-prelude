@@ -1,4 +1,3 @@
-use std::ops::{Deref, DerefMut};
 use gl;
 use gl::types::*;
 
@@ -170,40 +169,4 @@ object!{ Sampler              Sampler            sampler                 sampler
 object!{ Texture              Texture            texture                 textures               }
 object!{ Renderbuffer         Renderbuffer       renderbuffer            renderbuffers          }
 object!{ Framebuffer          Framebuffer        framebuffer             framebuffers           }
-                                                
-
-macro_rules! specialized {
-    ($SubObject:ident $Object:ident) => {
-        #[derive(Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
-        #[repr(C)]
-        pub struct $SubObject(pub(super) $Object);
-
-        impl Object for $SubObject {
-            const NAMESPACE: Namespace = $Object::NAMESPACE;
-            fn gl_id(&self) -> GLuint {
-                self.0.gl_id()
-            }
-            fn gl_create() -> GLuint { $Object::gl_create() }
-            fn gl_gen(v: &mut [GLuint]) { $Object::gl_gen(v); }
-            fn gl_delete_single(i: GLuint) { $Object::gl_delete_single(i); }
-            fn gl_delete_multiple(v: &[GLuint]) { $Object::gl_delete_multiple(v); }
-        }
-        
-        impl Deref for $SubObject {
-            type Target = $Object;
-            fn deref(&self) -> &$Object {
-                &self.0
-            }
-        }
-        impl DerefMut for $SubObject {
-            fn deref_mut(&mut self) -> &mut $Object {
-                &mut self.0
-            }
-        }
-    };
-}
-
-specialized!{Texture2D Texture}
-specialized!{TextureCubeMap Texture}
-// specialized!{VertexBuffer Buffer}
-
+ 

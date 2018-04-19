@@ -24,6 +24,7 @@ pub mod v;
 pub mod system;
 pub mod grx;
 pub mod gx;
+pub mod mesh;
 
 use std::time::Duration;
 use game::Game;

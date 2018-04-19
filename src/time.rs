@@ -63,9 +63,9 @@ impl TimeManager {
         if let Some(fps_ceil) = self.fps_ceil {
             let a_frame = Duration::from_f64_seconds(1. / fps_ceil);
             let ftime = Instant::now() - self.current_time;
-            trace!("ftime={}, a_frame={}", ftime.to_f64_seconds(), a_frame.to_f64_seconds());
+            trace!("Time: frame_time={}, max_frame_time={}", ftime.to_f64_seconds(), a_frame.to_f64_seconds());
             if ftime < a_frame {
-                trace!("Sleeping for {}", (a_frame - ftime).to_f64_seconds());
+                trace!("Time: Sleeping for {} seconds", (a_frame - ftime).to_f64_seconds());
                 ::std::thread::sleep(a_frame - ftime);
             }
         }

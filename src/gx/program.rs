@@ -1,5 +1,8 @@
+use super::{Program, VertexShader, FragmentShader, Object};
+use gl::{self, types::*};
+
 impl Program {
-    pub fn from_vert_frag(vs: &VertexShader, fs: &FragmentShader) -> Result<Self, String> {
+    pub fn try_from_vert_frag(vs: &VertexShader, fs: &FragmentShader) -> Result<Self, String> {
         unsafe {
             let program = gl::CreateProgram();
             assert_ne!(program, 0);

@@ -9,7 +9,7 @@ use gl;
 /// COPY: The data store contents are modified by reading data from the GL, and used as the source for GL drawing and image specification commands.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u32)]
-pub enum Usage {
+pub enum BufferUsage {
     StreamDraw  = gl::STREAM_DRAW,
     StreamRead  = gl::STREAM_READ,
     StreamCopy  = gl::STREAM_COPY,
@@ -23,7 +23,7 @@ pub enum Usage {
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u32)]
-pub enum Target {
+pub enum BufferTarget {
     Array = gl::ARRAY_BUFFER,
     AtomicCounter = gl::ATOMIC_COUNTER_BUFFER,
     CopyRead = gl::COPY_READ_BUFFER,
