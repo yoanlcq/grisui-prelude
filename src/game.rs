@@ -32,9 +32,11 @@ impl System for QuitSystem {
 impl Game {
     pub fn new(name: &str, w: u32, h: u32) -> Self {
         info!("Game: Initializing...");
+
         let platform = Platform::new(name, w, h);
         let input = Input::default();
         let messages = Default::default();
+
         let systems = RefCell::new(vec![
             Box::new(InputSystem) as Box<System>,
             Box::new(PlatformSystem),
@@ -70,10 +72,14 @@ impl Game {
             }
             self.pump_messages();
         }
+        // We still want to pump messages if there were no events.
         self.pump_messages();
     }
     fn pump_messages(&self) {
-        while !self.messages.borrow().is_empty() { // Handling messages can cause new messages to be emitted
+        // Handling messages can cause new messages to be emitted
+        while !self.messages.borrow().is_empty() {
+            // replace() here allows us not to borrow the message queue while iterating,
+            // which allows systems to push messages to the queue while already handling messages.
             for msg in self.messages.replace(Default::default()) {
                 for s in self.systems.borrow_mut().iter_mut() {
                     trace!("Message {}... {:?}", s.name(), msg);
