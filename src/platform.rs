@@ -1,7 +1,9 @@
+use std::cell::Cell;
 use sdl2::{self, Sdl, VideoSubsystem};
 use sdl2::video::{Window, GLContext, SwapInterval};
 use v::Extent2;
-use esystem::ESystem;
+use game::Game;
+use system::System;
 use grx;
 use gl;
 
@@ -10,13 +12,7 @@ pub struct Platform {
     pub video: VideoSubsystem,
     pub window: Window,
     pub gl_context: GLContext,
-    window_size: Extent2<u32>,
-}
-
-impl ESystem for Platform {
-    fn on_canvas_resized(&mut self, size: Extent2<u32>, _by_user: bool) {
-        self.window_size = size;
-    }
+    pub(self) window_size: Cell<Extent2<u32>>,
 }
 
 impl Platform {
@@ -32,13 +28,13 @@ impl Platform {
         grx::boot_gl();
         video.gl_set_swap_interval(SwapInterval::LateSwapTearing);
 
-        let window_size = Extent2::new(w, h);
+        let window_size = Cell::new(Extent2::new(w, h));
 
         Self { sdl, video, window, gl_context, window_size }
     }
 
     pub fn canvas_size(&self) -> Extent2<u32> {
-        self.window_size
+        self.window_size.get()
     }
     pub fn present(&self) {
         self.window.gl_swap_window();
@@ -47,6 +43,15 @@ impl Platform {
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
+    }
+}
+
+pub struct PlatformSystem;
+
+impl System for PlatformSystem {
+    fn name(&self) -> &str { "PlatformSystem" }
+    fn on_canvas_resized(&mut self, g: &Game, size: Extent2<u32>, _by_user: bool) {
+        g.platform.window_size.set(size);
     }
 }
 

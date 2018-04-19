@@ -1,69 +1,86 @@
 use std::time::Duration;
+use std::cell::{RefCell, Cell};
+use std::collections::VecDeque;
 use duration_ext::DurationExt;
-use esystem::{self, ESystem};
-use input::Input;
-use platform::Platform;
+use system::{self, System, Message};
+use input::{Input, InputSystem};
+use platform::{Platform, PlatformSystem};
 
 pub struct Game {
-    wants_to_quit: bool,
+    pub wants_to_quit: Cell<bool>,
     pub platform: Platform,
     pub input: Input,
+    pub messages: RefCell<VecDeque<Message>>,
+    pub systems: RefCell<Vec<Box<System>>>,
 }
+
+pub struct QuitSystem;
+
+impl System for QuitSystem {
+    fn name(&self) -> &str { "QuitSystem" }
+    fn on_quit_requested(&mut self, g: &Game) {
+        info!("{}: Received 'Quit' event", self.name());
+        g.wants_to_quit.set(true);
+    }
+}
+
 
 impl Game {
     pub fn new(name: &str, w: u32, h: u32) -> Self {
-        info!("Initializing game...");
+        info!("Game: Initializing...");
         let platform = Platform::new(name, w, h);
         let input = Input::default();
-        info!("... Done initializing game.");
+        let messages = Default::default();
+        let systems = RefCell::new(vec![
+            Box::new(InputSystem) as Box<System>,
+            Box::new(PlatformSystem),
+            Box::new(QuitSystem),
+        ]);
+        info!("Game: ... Done initializing.");
         Self {
-            wants_to_quit: false,
+            wants_to_quit: Cell::new(false),
             platform,
             input,
+            messages,
+            systems,
         }
     }
-    pub fn clear_draw(&self) {
-        self.platform.clear_draw();
-    }
-    pub fn present(&self) {
-        self.platform.present();
-    }
     pub fn should_quit(&self) -> bool {
-        self.wants_to_quit
+        self.wants_to_quit.get()
     }
-    pub fn pump_events(&mut self) {
+    pub fn pump_events(&self) {
         for event in self.platform.sdl.event_pump().unwrap().poll_iter() {
-            esystem::dispatch_sdl2_event(self, &event);
-            for esys in self.esystems_mut().iter_mut() {
-                esystem::dispatch_sdl2_event(*esys, &event);
+            for s in self.systems.borrow_mut().iter_mut() {
+                trace!("SDL2 Event {}... {:?}", s.name(), event);
+                system::dispatch_sdl2_event(s.as_mut(), self, &event);
+            }
+            self.pump_messages();
+        }
+        self.pump_messages();
+    }
+    fn pump_messages(&self) {
+        while !self.messages.borrow().is_empty() { // Handling messages can cause new messages to be emitted
+            for msg in self.messages.replace(Default::default()) {
+                for s in self.systems.borrow_mut().iter_mut() {
+                    trace!("Message {}... {:?}", s.name(), msg);
+                    s.on_message(self, &msg);
+                }
             }
         }
     }
-    pub fn esystems_mut(&mut self) -> [&mut ESystem; 2] {
-        let &mut Self {
-            wants_to_quit: _,
-            ref mut platform,
-            ref mut input,
-        } = self;
-        [input, platform]
+    pub fn tick(&self, t: Duration, dt: Duration) {
+        for s in self.systems.borrow_mut().iter_mut() {
+            trace!("Tick {}... dt={}, t={}", s.name(), dt.to_f64_seconds(), t.to_f64_seconds());
+            s.tick(self, t, dt);
+        }
     }
-}
-
-impl ESystem for Game {
-    fn on_quit_requested(&mut self) {
-        info!("Game: Received 'Quit' event");
-        self.wants_to_quit = true;
-    }
-    fn compute_gfx_state_via_lerp_previous_current(&mut self, alpha: f64) {
-        trace!("Gfx State. alpha={}", alpha);
-    }
-    fn tick(&mut self, t: Duration, dt: Duration) {
-        let t = t.to_f64_seconds() as f32;
-        let dt = dt.to_f64_seconds() as f32;
-        trace!("Integrating. dt={}, t={}", dt, t);
-    }
-    fn draw(&mut self) {
-        trace!("Drawing.");
+    pub fn draw(&self, p: f64) {
+        self.platform.clear_draw();
+        for s in self.systems.borrow_mut().iter_mut() {
+            trace!("Draw {}... alpha={}", s.name(), p);
+            s.draw(self, p);
+        }
+        self.platform.present();
     }
 }
 

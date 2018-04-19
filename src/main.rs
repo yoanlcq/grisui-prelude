@@ -21,14 +21,11 @@ pub mod game;
 pub mod platform;
 pub mod input;
 pub mod v;
-pub mod esystem;
+pub mod system;
 pub mod grx;
 pub mod gx;
-// pub mod ecs;
-// pub mod id;
 
 use std::time::Duration;
-use esystem::ESystem;
 use game::Game;
 use time::{TimeManager, FpsCounter};
 
@@ -36,7 +33,8 @@ fn main() {
     early::setup_panic_hook();
     early::setup_env();
     early::setup_log();
-    let mut g = Game::new("Grisui - Prelude", 800, 600);
+
+    let g = Game::new("Grisui - Prelude", 800, 600);
     let mut time = TimeManager::with_fixed_dt_and_frame_time_ceil(
         Duration::from_millis(50),
         Duration::from_millis(250),
@@ -49,7 +47,6 @@ fn main() {
         time.begin_main_loop_iteration();
 
         time.pump_physics_steps(|t, dt| {
-            g.replace_previous_state_by_current();
             g.pump_events();
             g.tick(t, dt);
         });
@@ -58,12 +55,8 @@ fn main() {
             break 'running;
         }
 
-        g.compute_gfx_state_via_lerp_previous_current(time.gfx_lerp_factor());
-
-        g.clear_draw();
         g.pump_events();
-        g.draw();
-        g.present();
+        g.draw(time.gfx_lerp_factor());
     
         if g.should_quit() {
             break 'running;
@@ -71,10 +64,10 @@ fn main() {
 
         fps_counter.add_frame();
         if let Some(stats) = fps_counter.try_sampling_fps() {
-            info!("New FPS stats: {}", &stats);
+            info!("Main: New FPS stats: {}", &stats);
             if stats.fps() > desired_max_fps && enable_fixing_broken_vsync {
                 time.fps_ceil = Some(desired_max_fps);
-                warn!("Broken VSync detected; FPS ceil is now set to {}", time.fps_ceil.unwrap());
+                warn!("Main: Broken VSync detected; FPS ceil is now set to {}", time.fps_ceil.unwrap());
             }
         }
 
