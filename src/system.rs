@@ -1,9 +1,9 @@
-use std::time::Duration;
+pub use std::time::Duration;
 pub use sdl2::event::{Event as Sdl2Event, WindowEvent};
 pub use sdl2::mouse::{MouseWheelDirection, MouseButton};
 pub use sdl2::keyboard::{Keycode};
-use v::{Extent2, Vec2};
-use game::Game;
+pub use v::{Extent2, Vec2};
+pub use game::Game;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
@@ -20,6 +20,8 @@ pub trait System {
     fn on_mouse_wheel(&mut self, _g: &Game, _delta: Vec2<i32>) {}
     fn on_mouse_motion(&mut self, _g: &Game, _pos: Vec2<i32>) {}
     fn on_mouse_button(&mut self, _g: &Game, _btn: MouseButton, _state: ButtonState) {}
+    fn on_mouse_enter(&mut self, _g: &Game) {}
+    fn on_mouse_leave(&mut self, _g: &Game) {}
     fn on_canvas_resized(&mut self, _g: &Game, _size: Extent2<u32>, _by_user: bool) {}
 
     fn on_message(&mut self, _g: &Game, _msg: &Message) {}
@@ -42,6 +44,12 @@ pub fn dispatch_sdl2_event(esys: &mut System, g: &Game, event: &Sdl2Event) {
             },
             WindowEvent::SizeChanged(w, h) => {
                 esys.on_canvas_resized(g, Extent2::new(w as _, h as _), false);
+            },
+            WindowEvent::Enter => {
+                esys.on_mouse_enter(g);
+            },
+            WindowEvent::Leave => {
+                esys.on_mouse_leave(g);
             },
             _ => (),
         },

@@ -5,6 +5,7 @@ use duration_ext::DurationExt;
 use system::{self, System, Message};
 use input::{Input, InputSystem};
 use platform::{Platform, PlatformSystem};
+use editor;
 use mesh;
 
 pub struct Game {
@@ -15,7 +16,6 @@ pub struct Game {
     pub systems: RefCell<Vec<Box<System>>>,
 
     pub mesh_gl_program: mesh::Program,
-    pub cursor_mesh: mesh::Mesh,
 }
 
 pub struct QuitSystem;
@@ -37,18 +37,14 @@ impl Game {
         let input = Input::default();
         let messages = Default::default();
 
+        let mesh_gl_program = mesh::Program::new();
+
         let systems = RefCell::new(vec![
             Box::new(InputSystem) as Box<System>,
             Box::new(PlatformSystem),
-            Box::new(mesh::CursorMeshSystem),
+            Box::new(editor::EditorSystem::new(&mesh_gl_program, platform.canvas_size())),
             Box::new(QuitSystem),
         ]);
-
-        let mesh_gl_program = mesh::Program::new();
-        let cursor_mesh = mesh::Mesh::from_vertices(
-            &mesh_gl_program, "Cursor Mesh", ::gx::BufferUsage::StaticDraw,
-            vec![mesh::Vertex { position: ::v::Vec3::zero(), color: ::v::Rgba::red(), }]
-        );
 
         info!("Game: ... Done initializing.");
         Self {
@@ -58,14 +54,16 @@ impl Game {
             messages,
             systems,
             mesh_gl_program,
-            cursor_mesh,
         }
     }
     pub fn should_quit(&self) -> bool {
         self.wants_to_quit.get()
     }
     pub fn pump_events(&self) {
-        for event in self.platform.sdl.event_pump().unwrap().poll_iter() {
+        // Required to shorten the RefMut's lifetime, so other system can borrow the event pump.
+        let poll_event = || self.platform.sdl_event_pump.borrow_mut().poll_event();
+
+        while let Some(event) = poll_event() {
             for s in self.systems.borrow_mut().iter_mut() {
                 trace!("SDL2 Event {}... {:?}", s.name(), event);
                 system::dispatch_sdl2_event(s.as_mut(), self, &event);

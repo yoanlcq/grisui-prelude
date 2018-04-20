@@ -22,8 +22,10 @@ pub fn configure_sdl2_gl_attr(gl_attr: GLAttr) {
 fn setup_gl_state() {
     unsafe {
         gl::Enable(gl::DEPTH_TEST);
-        gl::Enable(gl::BLEND);                                                         
-        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);  
+        gl::Enable(gl::BLEND);
+        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        gl::Enable(gl::CULL_FACE);
+        gl::CullFace(gl::BACK);
         // gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
         gl::ClearColor(1., 1., 0., 1.);
     }

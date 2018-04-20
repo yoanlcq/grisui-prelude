@@ -5,30 +5,11 @@ use gx::{self, Object};
 use grx;
 use gl::{self, types::*};
 use v::{Vec3, Rgba, Mat4};
-use game::Game;
-use system::*;
-
-pub struct CursorMeshSystem;
-
-impl System for CursorMeshSystem {
-    fn name(&self) -> &str { "CursorMeshSystem" }
-    fn draw(&mut self, g: &Game, _: f64) {
-        unsafe {
-            gl::PointSize(4.);
-            gl::UseProgram(g.mesh_gl_program.program.gl_id());
-            g.mesh_gl_program.set_uniform_mvp(&Mat4::identity());
-            gl::BindVertexArray(g.cursor_mesh.vao.gl_id());
-            gl::DrawArrays(gl::POINTS, 0, 1);
-            gl::BindVertexArray(0);
-            gl::UseProgram(0);
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct Mesh {
     buffer_usage: gx::BufferUsage,
-    vertices: Vec<Vertex>,
+    pub vertices: Vec<Vertex>,
     vbo: gx::Buffer,
     vao: gx::VertexArray,
 }
@@ -53,6 +34,8 @@ pub struct Program {
 
 
 impl Mesh {
+    pub fn vao(&self) -> &gx::VertexArray { &self.vao }
+    pub fn vbo(&self) -> &gx::Buffer { &self.vbo }
     pub fn update_vbo(&self) {
         unsafe {
             gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo.gl_id());
@@ -124,6 +107,9 @@ void main() {
 }
 \0";
 
+    pub fn program(&self) -> &gx::Program {
+        &self.program
+    }
 
     pub fn a_position(&self) -> GLuint {
         self.a_position

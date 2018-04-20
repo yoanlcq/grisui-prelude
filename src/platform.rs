@@ -1,18 +1,39 @@
-use std::cell::Cell;
-use sdl2::{self, Sdl, VideoSubsystem};
+use std::cell::{Cell, RefCell};
+use sdl2::{self, Sdl, VideoSubsystem, EventPump};
 use sdl2::video::{Window, GLContext, SwapInterval};
-use v::Extent2;
+use sdl2::mouse::{Cursor as Sdl2Cursor, SystemCursor};
+use v::{Vec2, Extent2};
 use game::Game;
 use system::System;
 use grx;
 use gl;
+
+pub struct Cursors {
+    pub normal: Sdl2Cursor,
+    pub text: Sdl2Cursor,
+    pub hand: Sdl2Cursor,
+    pub crosshair: Sdl2Cursor, 
+}
+
+impl Cursors {
+    pub fn new() -> Self {
+        Self {
+            normal: Sdl2Cursor::from_system(SystemCursor::Arrow).unwrap(),
+            text: Sdl2Cursor::from_system(SystemCursor::IBeam).unwrap(),
+            hand: Sdl2Cursor::from_system(SystemCursor::Hand).unwrap(),
+            crosshair: Sdl2Cursor::from_system(SystemCursor::Crosshair).unwrap(),
+        }
+    }
+}
 
 pub struct Platform {
     pub sdl: Sdl,
     pub video: VideoSubsystem,
     pub window: Window,
     pub gl_context: GLContext,
+    pub sdl_event_pump: RefCell<EventPump>,
     pub(self) window_size: Cell<Extent2<u32>>,
+    pub cursors: Cursors,
 }
 
 impl Platform {
@@ -28,11 +49,17 @@ impl Platform {
         grx::boot_gl();
         video.gl_set_swap_interval(SwapInterval::LateSwapTearing);
 
+        let cursors = Cursors::new();
         let window_size = Cell::new(Extent2::new(w, h));
+        let sdl_event_pump = RefCell::new(sdl.event_pump().unwrap());
 
-        Self { sdl, video, window, gl_context, window_size }
+        Self { sdl, video, window, gl_context, window_size, cursors, sdl_event_pump }
     }
 
+    pub fn mouse_position(&self) -> Vec2<i32> {
+        let state = self.sdl_event_pump.borrow().mouse_state();
+        Vec2::new(state.x(), state.y())
+    }
     pub fn canvas_size(&self) -> Extent2<u32> {
         self.window_size.get()
     }
