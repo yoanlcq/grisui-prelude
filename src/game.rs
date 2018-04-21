@@ -54,7 +54,7 @@ impl Game {
             Box::new(InputSystem) as Box<System>,
             Box::new(PlatformSystem),
             Box::new(editor::EditorSystem::new(&mesh_gl_program, platform.canvas_size())),
-            Box::new(gameplay::GameplaySystem),
+            Box::new(gameplay::GameplaySystem::new()),
             Box::new(QuitSystem),
         ]);
 
