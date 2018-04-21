@@ -1,25 +1,20 @@
 pub use std::time::Duration;
 pub use sdl2::event::{Event as Sdl2Event, WindowEvent};
-pub use sdl2::mouse::{MouseWheelDirection, MouseButton};
-pub use sdl2::keyboard::{Keycode};
+pub use sdl2::mouse::{MouseWheelDirection, MouseButton as Sdl2MouseButton};
+pub use sdl2::keyboard::{Keycode, Scancode};
 pub use v::{Extent2, Vec2};
 pub use game::Game;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Message {
-    Hello,
-    Goodbye,
-}
-
+pub use message::Message;
+pub use input::{Key, MouseButton, KeyState};
 
 pub trait System {
     fn name(&self) -> &str;
     fn on_quit_requested(&mut self, _g: &Game) {}
     fn on_text_input(&mut self, _g: &Game, _text: &str) {}
-    fn on_key(&mut self, _g: &Game, _keycode: Keycode, _state: KeyState) {}
+    fn on_key(&mut self, _g: &Game, _key: Key) {}
     fn on_mouse_wheel(&mut self, _g: &Game, _delta: Vec2<i32>) {}
     fn on_mouse_motion(&mut self, _g: &Game, _pos: Vec2<i32>) {}
-    fn on_mouse_button(&mut self, _g: &Game, _btn: MouseButton, _state: ButtonState) {}
+    fn on_mouse_button(&mut self, _g: &Game, _btn: MouseButton) {}
     fn on_mouse_enter(&mut self, _g: &Game) {}
     fn on_mouse_leave(&mut self, _g: &Game) {}
     fn on_canvas_resized(&mut self, _g: &Game, _size: Extent2<u32>, _by_user: bool) {}
@@ -60,21 +55,13 @@ pub fn dispatch_sdl2_event(esys: &mut System, g: &Game, event: &Sdl2Event) {
         Sdl2Event::TextInput { ref text, .. } => {
             esys.on_text_input(g, &text);
         },
-        Sdl2Event::KeyDown { keycode, repeat, scancode: _, keymod: _, .. } => {
+        Sdl2Event::KeyDown { keycode, repeat, scancode, keymod: _, .. } => {
             if !repeat {
-                if let Some(keycode) = keycode {
-                    esys.on_key(g, keycode, KeyState::Down);
-                } else {
-                    warn!("Some key was pressed, but keycode is None");
-                }
+                esys.on_key(g, Key { code: keycode, scancode, state: KeyState::Down, });
             }
         },
-        Sdl2Event::KeyUp { keycode, scancode: _, keymod: _, .. } => {
-            if let Some(keycode) = keycode {
-                esys.on_key(g, keycode, KeyState::Up);
-            } else {
-                warn!("Some key was released, but keycode is None");
-            }
+        Sdl2Event::KeyUp { keycode, scancode, keymod: _, .. } => {
+            esys.on_key(g, Key { code: keycode, scancode, state: KeyState::Up, });
         },
         Sdl2Event::MouseWheel { x, y, direction, .. } => {
             let sign = match direction {
@@ -88,53 +75,14 @@ pub fn dispatch_sdl2_event(esys: &mut System, g: &Game, event: &Sdl2Event) {
         },
         Sdl2Event::MouseButtonDown { mouse_btn, clicks: _, x, y, .. } => {
             esys.on_mouse_motion(g, Vec2::new(x as _, y as _));
-            esys.on_mouse_button(g, mouse_btn, KeyState::Down);
+            esys.on_mouse_button(g, MouseButton { button: mouse_btn, state: KeyState::Down });
         },
         Sdl2Event::MouseButtonUp { mouse_btn, clicks: _, x, y, .. } => {
             esys.on_mouse_motion(g, Vec2::new(x as _, y as _));
-            esys.on_mouse_button(g, mouse_btn, KeyState::Up);
+            esys.on_mouse_button(g, MouseButton { button: mouse_btn, state: KeyState::Up });
         },
         // TODO FIXME: MouseEnter and MouseLeave
         _ => (),
     };
 }
-
-
-mod key_state {
-    #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-    pub enum KeyState {
-        Up, Down,
-    }
-    pub type ButtonState = KeyState;
-
-    impl Default for KeyState {
-        fn default() -> Self {
-            KeyState::Up
-        }
-    }
-
-    impl ::std::ops::Not for KeyState {
-        type Output = Self;
-        fn not(self) -> Self {
-            match self {
-                KeyState::Down => KeyState::Up,
-                KeyState::Up => KeyState::Down,
-            }
-        }
-    }
-
-    impl KeyState {
-        pub fn is_down(&self) -> bool {
-            match *self {
-                KeyState::Down => true,
-                KeyState::Up => false,
-            }
-        }
-        pub fn is_up(&self) -> bool {
-            !self.is_down()
-        }
-    }
-}
-pub use self::key_state::*;
-
 

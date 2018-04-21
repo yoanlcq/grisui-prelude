@@ -28,6 +28,7 @@ pub mod mesh;
 pub mod editor;
 pub mod camera;
 pub mod xform;
+pub mod message;
 
 use std::time::Duration;
 use game::Game;
@@ -38,7 +39,7 @@ fn main() {
     early::setup_env();
     early::setup_log();
 
-    let g = Game::new("Grisui - Prelude", 1280, 720);
+    let g = Game::new("Grisui - Prelude", 800, 480);
     let mut time = TimeManager::with_fixed_dt_and_frame_time_ceil(
         Duration::from_millis(50),
         Duration::from_millis(250),
