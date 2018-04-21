@@ -33,6 +33,19 @@ impl System for InputSystem {
     fn name(&self) -> &str { "InputSystem" }
     fn on_mouse_button(&mut self, g: &Game, btn: MouseButton) {
         *g.input.mouse_buttons.borrow_mut().entry(btn.button).or_insert(btn.state) = btn.state;
+
+        let send = |msg| g.messages.borrow_mut().push_back(msg);
+
+        match btn.button {
+            Sdl2MouseButton::Left => {
+                send(Message::EditorAddVertexAtCurrentMousePosition);
+            },
+            Sdl2MouseButton::Middle => {},
+            Sdl2MouseButton::Right => {},
+            Sdl2MouseButton::Unknown => {},
+            Sdl2MouseButton::X1 => {},
+            Sdl2MouseButton::X2 => {},
+        };
     }
     fn on_mouse_leave(&mut self, g: &Game) {
         g.input.mouse_position.set(None);

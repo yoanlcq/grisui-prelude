@@ -20,6 +20,8 @@ pub struct EditorSystem {
     prev_camera_rotation_z_radians: f32,
     next_camera_rotation_z_radians: f32,
     is_active: bool,
+    primary_color: Rgba<f32>,
+    draft_mesh: Mesh,
 }
 
 fn create_grid_mesh(mesh_gl_program: &mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> Mesh {
@@ -81,6 +83,9 @@ impl EditorSystem {
                 Vertex { position: Vec3::unit_y(), color: Rgba::blue(), },
             ]
         );
+        let draft_mesh = Mesh::from_vertices(
+            &mesh_gl_program, "Draft Mesh", BufferUsage::DynamicDraw, vec![]
+        );
         let near = Self::DEFAULT_NEAR;
         let far = Self::DEFAULT_FAR;
         let camera = Camera2D {
@@ -97,6 +102,8 @@ impl EditorSystem {
         };
         let mut s = Self {
             camera, cursor_mesh, grid_origin_mesh, grid_mesh_1, grid_mesh_01,
+            draft_mesh,
+            primary_color: Rgba::red(),
             draw_grid_first: true,
             do_draw_grid: true,
             is_panning_camera: false,
@@ -127,6 +134,17 @@ impl EditorSystem {
         }
         g.platform.cursors.normal.set();
         self.is_active = false;
+    }
+
+    fn add_vertex_at_current_mouse_position(&mut self, g: &Game) {
+        assert!(self.is_active);
+        if let Some(pos) = g.input.mouse_position() {
+            let color = self.primary_color;
+            let mut position = self.camera.viewport_to_world(pos, 0.);
+            // position.z = 0.;
+            self.draft_mesh.vertices.push(Vertex { position, color, });
+            self.draft_mesh.update_vbo();
+        }
     }
 }
 
@@ -184,6 +202,7 @@ impl System for EditorSystem {
                 self.next_camera_rotation_z_radians = 0.;
             },
             Message::EditorResetCameraZoom => self.camera.xform.scale = Vec2::one(),
+            Message::EditorAddVertexAtCurrentMousePosition => self.add_vertex_at_current_mouse_position(g),
             _ => (),
         };
     }
@@ -215,6 +234,16 @@ impl System for EditorSystem {
                 gl::BindVertexArray(self.cursor_mesh.vao().gl_id());
                 gl::DrawArrays(gl::POINTS, 0, self.cursor_mesh.vertices.len() as _);
                 gl::DrawArrays(gl::TRIANGLES, 0, self.cursor_mesh.vertices.len() as _);
+            };
+
+            let draw_draft_mesh = || {
+                let mvp = self.camera.view_proj_matrix();
+                g.mesh_gl_program.set_uniform_mvp(&mvp);
+                gl::PointSize(8.);
+                gl::LineWidth(8.);
+                gl::BindVertexArray(self.draft_mesh.vao().gl_id());
+                gl::DrawArrays(gl::POINTS, 0, self.draft_mesh.vertices.len() as _);
+                gl::DrawArrays(gl::LINE_STRIP, 0, self.draft_mesh.vertices.len() as _);
             };
 
             let draw_grid = || {
@@ -249,8 +278,10 @@ impl System for EditorSystem {
             if self.draw_grid_first {
                 draw_grid();
                 draw_cursor();
+                draw_draft_mesh();
             } else {
                 draw_cursor();
+                draw_draft_mesh();
                 draw_grid();
             }
 
