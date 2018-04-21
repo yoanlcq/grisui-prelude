@@ -78,12 +78,14 @@ impl System for InputSystem {
                 send(Message::EditorEndPanCameraViaMouse);
             },
             Keycode::R => if key.is_down() {
-                send(Message::EditorBeginRotateCameraLeft);
+                // NOTE: If you rotate the camera to the right, the world rotates to the left!
+                send(Message::EditorBeginRotateCameraRight);
             } else {
                 send(Message::EditorEndRotateCamera);
             },
             Keycode::T => if key.is_down() {
-                send(Message::EditorBeginRotateCameraRight);
+                // NOTE: If you rotate the camera to the left, the world rotates to the right!
+                send(Message::EditorBeginRotateCameraLeft);
             } else {
                 send(Message::EditorEndRotateCamera);
             },

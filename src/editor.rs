@@ -26,14 +26,30 @@ fn create_grid_mesh(mesh_gl_program: &mesh::Program, size: Extent2<usize>, color
     let (w, h) = size.map(|x| x as isize).into_tuple();
     let mut vertices = Vec::with_capacity((w * h) as usize);
     for y in (-h) .. (1 + h) {
-        let color = if y == 0 { Rgba::red() } else { color };
-        vertices.push(Vertex { position: Vec3::new(-w as f32 * scale.w, y as f32 * scale.h, 0.), color, });
-        vertices.push(Vertex { position: Vec3::new( w as f32 * scale.w, y as f32 * scale.h, 0.), color, });
+        if y == 0 {
+            let color = Rgba::black();
+            vertices.push(Vertex { position: Vec3::new(-w as f32 * scale.w, y as f32 * scale.h, 0.), color, });
+            vertices.push(Vertex { position: Vec3::new(                 0., y as f32 * scale.h, 0.), color, });
+            let color = Rgba::red();
+            vertices.push(Vertex { position: Vec3::new(                 0., y as f32 * scale.h, 0.), color, });
+            vertices.push(Vertex { position: Vec3::new( w as f32 * scale.w, y as f32 * scale.h, 0.), color, });
+        } else {
+            vertices.push(Vertex { position: Vec3::new(-w as f32 * scale.w, y as f32 * scale.h, 0.), color, });
+            vertices.push(Vertex { position: Vec3::new( w as f32 * scale.w, y as f32 * scale.h, 0.), color, });
+        }
     }
     for x in (-w) .. (1 + w) {
-        let color = if x == 0 { Rgba::red() } else { color };
-        vertices.push(Vertex { position: Vec3::new(x as f32 * scale.w, -h as f32 * scale.h, 0.), color, });
-        vertices.push(Vertex { position: Vec3::new(x as f32 * scale.w,  h as f32 * scale.h, 0.), color, });
+        if x == 0 {
+            let color = Rgba::new(0., 0.6, 0., 1.);
+            vertices.push(Vertex { position: Vec3::new(x as f32 * scale.w, -h as f32 * scale.h, 0.), color, });
+            vertices.push(Vertex { position: Vec3::new(x as f32 * scale.w,                  0., 0.), color, });
+            let color = Rgba::green();
+            vertices.push(Vertex { position: Vec3::new(x as f32 * scale.w,                  0., 0.), color, });
+            vertices.push(Vertex { position: Vec3::new(x as f32 * scale.w,  h as f32 * scale.h, 0.), color, });
+        } else {
+            vertices.push(Vertex { position: Vec3::new(x as f32 * scale.w, -h as f32 * scale.h, 0.), color, });
+            vertices.push(Vertex { position: Vec3::new(x as f32 * scale.w,  h as f32 * scale.h, 0.), color, });
+        }
     }
     Mesh::from_vertices(&mesh_gl_program, "Grid Mesh", BufferUsage::StaticDraw, vertices)
 }
@@ -221,7 +237,7 @@ impl System for EditorSystem {
                     gl::BindVertexArray(self.grid_mesh_1.vao().gl_id());
                     gl::DrawArrays(gl::LINES, 0, self.grid_mesh_1.vertices.len() as _);
 
-                    gl::PointSize(16.);
+                    gl::PointSize(8.);
                     gl::BindVertexArray(self.grid_origin_mesh.vao().gl_id());
                     gl::DrawArrays(gl::POINTS, 0, self.grid_origin_mesh.vertices.len() as _);
 
