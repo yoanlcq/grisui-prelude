@@ -44,6 +44,11 @@ impl System for InputSystem {
             Keycode::F => if key.is_down() {
                 send(Message::EditorToggleDrawGridFirst);
             },
+            Keycode::Space => if key.is_down() {
+                send(Message::EditorBeginPanCameraViaMouse);
+            } else {
+                send(Message::EditorEndPanCameraViaMouse);
+            },
             _ => (),
         };
     }

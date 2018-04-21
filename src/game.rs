@@ -42,7 +42,7 @@ impl Game {
         let systems = RefCell::new(vec![
             Box::new(InputSystem) as Box<System>,
             Box::new(PlatformSystem),
-            Box::new(editor::EditorSystem::new(&mesh_gl_program, platform.canvas_size())),
+            Box::new(editor::EditorSystem::new(&mesh_gl_program, platform.canvas_size(), platform.mouse_position())),
             Box::new(QuitSystem),
         ]);
 
