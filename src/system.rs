@@ -12,7 +12,7 @@ pub trait System {
     fn on_quit_requested(&mut self, _g: &Game) {}
     fn on_text_input(&mut self, _g: &Game, _text: &str) {}
     fn on_key(&mut self, _g: &Game, _key: Key) {}
-    fn on_mouse_wheel(&mut self, _g: &Game, _delta: Vec2<i32>) {}
+    fn on_mouse_scroll(&mut self, _g: &Game, _delta: Vec2<i32>) {}
     fn on_mouse_motion(&mut self, _g: &Game, _pos: Vec2<i32>) {}
     fn on_mouse_button(&mut self, _g: &Game, _btn: MouseButton) {}
     fn on_mouse_enter(&mut self, _g: &Game) {}
@@ -27,6 +27,8 @@ pub trait System {
     fn draw(&mut self, _g: &Game, _interp: f64) {}
 }
 
+// This function exists in case `on_message` gets split into multiple
+// functions instead one day. e.g `on_editor_message`, `on_network_message`...
 pub fn dispatch_message(esys: &mut System, g: &Game, msg: &Message) {
     esys.on_message(g, msg);
 }
@@ -42,6 +44,7 @@ pub fn dispatch_sdl2_event(esys: &mut System, g: &Game, event: &Sdl2Event) {
             },
             WindowEvent::Enter => {
                 esys.on_mouse_enter(g);
+                esys.on_mouse_motion(g, g.platform.mouse_position());
             },
             WindowEvent::Leave => {
                 esys.on_mouse_leave(g);
@@ -68,7 +71,7 @@ pub fn dispatch_sdl2_event(esys: &mut System, g: &Game, event: &Sdl2Event) {
                 MouseWheelDirection::Flipped => -1,
                 _ => 1,
             };
-            esys.on_mouse_wheel(g, Vec2::new(x as _, y as _) * sign);
+            esys.on_mouse_scroll(g, Vec2::new(x as _, y as _) * sign);
         },
         Sdl2Event::MouseMotion { mousestate: _, x, y, xrel: _, yrel: _, .. } => {
             esys.on_mouse_motion(g, Vec2::new(x as _, y as _));
@@ -81,7 +84,6 @@ pub fn dispatch_sdl2_event(esys: &mut System, g: &Game, event: &Sdl2Event) {
             esys.on_mouse_motion(g, Vec2::new(x as _, y as _));
             esys.on_mouse_button(g, MouseButton { button: mouse_btn, state: KeyState::Up });
         },
-        // TODO FIXME: MouseEnter and MouseLeave
         _ => (),
     };
 }

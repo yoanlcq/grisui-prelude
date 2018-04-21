@@ -1,5 +1,5 @@
 use xform::Xform2D;
-use v::{Mat4, Vec3, Extent2, Rect,};
+use v::{Mat4, Vec2, Vec3, Extent2, Rect};
 pub use v::FrustumPlanes;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -39,7 +39,9 @@ impl Camera2D {
         let eye = self.xform.position;
         let target = eye + self.xform.forward();
         let up = self.xform.up().into();
-        Mat4::look_at(eye, target, up)
+        let mut scale = Vec3::from(self.xform.scale);
+        scale.z = 1.;
+        Mat4::<f32>::look_at(eye, target, up) * Mat4::scaling_3d(scale)
     }
     pub fn view_proj_matrix(&self) -> Mat4<f32> {
         self.proj_matrix() * self.view_matrix()
@@ -52,16 +54,15 @@ impl Camera2D {
             h: self.viewport_size.h as _,
         }
     }
-    pub fn viewport_to_world(&self, p: Vec3<f32>) -> Vec3<f32> {
-        let modelview = self.view_matrix();
-        let proj = self.proj_matrix();
-        let viewport = self.viewport();
-        Mat4::viewport_to_world_no(p, modelview, proj, viewport)
+    pub fn viewport_to_world(&self, p: Vec2<i32>, z: f32) -> Vec3<f32> {
+        let y = self.viewport_size.h as i32 - p.y;
+        let v = Vec3::new(p.x as f32 + 0.5, y as f32 + 0.5, z);
+        Mat4::viewport_to_world_no(v, self.view_matrix(), self.proj_matrix(), self.viewport())
     }
-    pub fn world_to_viewport(&self, p: Vec3<f32>) -> Vec3<f32> {
-        let modelview = self.view_matrix();
-        let proj = self.proj_matrix();
-        let viewport = self.viewport();
-        Mat4::world_to_viewport_no(p, modelview, proj, viewport)
+    pub fn world_to_viewport(&self, o: Vec3<f32>) -> (Vec2<i32>, f32) {
+        let v = Mat4::world_to_viewport_no(o, self.view_matrix(), self.proj_matrix(), self.viewport());
+        let (mut v, z) = (Vec2::from(v.map(|x| x.round() as i32)), v.z);
+        v.y = self.viewport_size.h as i32 - v.y;
+        (v, z)
     }
 }

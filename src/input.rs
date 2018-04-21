@@ -8,7 +8,8 @@ use system::*;
 pub struct Input {
     keys: RefCell<HashMap<Keycode, KeyState>>,
     mouse_buttons: RefCell<HashMap<Sdl2MouseButton, ButtonState>>,
-    mouse_position: Cell<Vec2<i32>>,
+    mouse_position: Cell<Option<Vec2<i32>>>,
+    previous_mouse_position: Cell<Option<Vec2<i32>>>,
 }
 
 impl Input {
@@ -18,8 +19,11 @@ impl Input {
     pub fn mouse_button(&self, btn: MouseButton) -> ButtonState {
         *self.mouse_buttons.borrow().get(&btn.button).unwrap_or(&KeyState::Up)
     }
-    pub fn mouse_position(&self) -> Vec2<i32> {
+    pub fn mouse_position(&self) -> Option<Vec2<i32>> {
         self.mouse_position.get()
+    }
+    pub fn previous_mouse_position(&self) -> Option<Vec2<i32>> {
+        self.previous_mouse_position.get()
     }
 }
 
@@ -27,6 +31,16 @@ pub struct InputSystem;
 
 impl System for InputSystem {
     fn name(&self) -> &str { "InputSystem" }
+    fn on_mouse_button(&mut self, g: &Game, btn: MouseButton) {
+        *g.input.mouse_buttons.borrow_mut().entry(btn.button).or_insert(btn.state) = btn.state;
+    }
+    fn on_mouse_leave(&mut self, g: &Game) {
+        g.input.mouse_position.set(None);
+    }
+    fn on_mouse_motion(&mut self, g: &Game, pos: Vec2<i32>) {
+        g.input.previous_mouse_position.set(g.input.mouse_position.get());
+        g.input.mouse_position.set(Some(pos));
+    }
     fn on_key(&mut self, g: &Game, key: Key) {
         if key.code.is_none() {
             return;
@@ -49,14 +63,23 @@ impl System for InputSystem {
             } else {
                 send(Message::EditorEndPanCameraViaMouse);
             },
+            Keycode::R => if key.is_down() {
+                send(Message::EditorBeginRotateCameraLeft);
+            } else {
+                send(Message::EditorEndRotateCamera);
+            },
+            Keycode::T => if key.is_down() {
+                send(Message::EditorBeginRotateCameraRight);
+            } else {
+                send(Message::EditorEndRotateCamera);
+            },
+            Keycode::C => if key.is_down() {
+                send(Message::EditorRecenterCamera);
+                send(Message::EditorResetCameraRotation);
+                send(Message::EditorResetCameraZoom);
+            },
             _ => (),
         };
-    }
-    fn on_mouse_button(&mut self, g: &Game, btn: MouseButton) {
-        *g.input.mouse_buttons.borrow_mut().entry(btn.button).or_insert(btn.state) = btn.state;
-    }
-    fn on_mouse_motion(&mut self, g: &Game, pos: Vec2<i32>) {
-        g.input.mouse_position.set(pos);
     }
 }
 

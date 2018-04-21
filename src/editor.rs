@@ -1,64 +1,75 @@
-use mesh;
 use gl;
-use gx::Object;
+use gx::{Object, BufferUsage};
 use system::*;
 use v::{Vec3, Rgba, Mat4};
 use camera::{Camera2D, CameraProjectionMode, FrustumPlanes};
 use xform::Xform2D;
+use mesh::{self, Mesh, Vertex};
+use duration_ext::DurationExt;
 
 pub struct EditorSystem {
     camera: Camera2D,
-    grid_origin_mesh: mesh::Mesh,
-    grid_mesh_1: mesh::Mesh,
-    grid_mesh_01: mesh::Mesh,
-    cursor_mesh: mesh::Mesh,
-    cursor_ray_origin: Option<Vec3<f32>>,
+    grid_origin_mesh: Mesh,
+    grid_mesh_1: Mesh,
+    grid_mesh_01: Mesh,
+    cursor_mesh: Mesh,
     draw_grid_first: bool,
     do_draw_grid: bool,
     is_panning_camera: bool,
-    previous_mouse_position: Vec2<i32>,
+    camera_rotation_speed: f32,
+    prev_camera_rotation_z_radians: f32,
+    next_camera_rotation_z_radians: f32,
 }
 
-fn create_grid_mesh(mesh_gl_program: &mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> mesh::Mesh {
+fn create_grid_mesh(mesh_gl_program: &mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> Mesh {
     let (w, h) = size.map(|x| x as isize).into_tuple();
     let mut vertices = Vec::with_capacity((w * h) as usize);
     for y in (-h) .. (1 + h) {
         let color = if y == 0 { Rgba::red() } else { color };
-        vertices.push(mesh::Vertex { position: Vec3::new(-w as f32 * scale.w, y as f32 * scale.h, 0.), color, });
-        vertices.push(mesh::Vertex { position: Vec3::new( w as f32 * scale.w, y as f32 * scale.h, 0.), color, });
+        vertices.push(Vertex { position: Vec3::new(-w as f32 * scale.w, y as f32 * scale.h, 0.), color, });
+        vertices.push(Vertex { position: Vec3::new( w as f32 * scale.w, y as f32 * scale.h, 0.), color, });
     }
     for x in (-w) .. (1 + w) {
-        let color = if x == 0 { Rgba::green() } else { color };
-        vertices.push(mesh::Vertex { position: Vec3::new(x as f32 * scale.w, -h as f32 * scale.h, 0.), color, });
-        vertices.push(mesh::Vertex { position: Vec3::new(x as f32 * scale.w,  h as f32 * scale.h, 0.), color, });
+        let color = if x == 0 { Rgba::red() } else { color };
+        vertices.push(Vertex { position: Vec3::new(x as f32 * scale.w, -h as f32 * scale.h, 0.), color, });
+        vertices.push(Vertex { position: Vec3::new(x as f32 * scale.w,  h as f32 * scale.h, 0.), color, });
     }
-    mesh::Mesh::from_vertices(&mesh_gl_program, "Grid Mesh", ::gx::BufferUsage::StaticDraw, vertices)
+    Mesh::from_vertices(&mesh_gl_program, "Grid Mesh", BufferUsage::StaticDraw, vertices)
 }
 
 impl EditorSystem {
-    // FIXME: It might be that the mouse isn't actually in the window at first
-    pub fn new(mesh_gl_program: &mesh::Program, viewport_size: Extent2<u32>, mouse_position: Vec2<i32>) -> Self {
+    // Z epsilon doesn't have to be equal to DEFAULT_NEAR.
+    const CAMERA_Z_EPSILON: f32 = 0.001;
+    const CAMERA_ZOOM_STEP_FACTOR: f32 = 1.1;
+    const CAMERA_NORMAL_Z_ROTATION_SPEED_DEGREES: f32 = 90.;
+    const DEFAULT_NEAR: f32 = 0.001;
+    const DEFAULT_FAR: f32 = 1000.;
+    const DEFAULT_CAMERA_POSITION: Vec3<f32> = Vec3 {
+        x: 0.,
+        y: 0.,
+        z: Self::DEFAULT_NEAR - Self::CAMERA_Z_EPSILON,
+    };
+    pub fn new(mesh_gl_program: &mesh::Program, viewport_size: Extent2<u32>) -> Self {
         let grid_mesh_1 = create_grid_mesh(mesh_gl_program, Extent2::new(8, 8), Rgba::white(), Extent2::one());
         let grid_mesh_01 = create_grid_mesh(mesh_gl_program, Extent2::new(64, 64), Rgba::new(1., 1., 1., 0.2), Extent2::one()/10.);
-        let grid_origin_mesh = mesh::Mesh::from_vertices(
-            &mesh_gl_program, "Grid Origin Mesh", ::gx::BufferUsage::StaticDraw,
-            vec![mesh::Vertex { position: Vec3::zero(), color: Rgba::red(), }]
+        let grid_origin_mesh = Mesh::from_vertices(
+            &mesh_gl_program, "Grid Origin Mesh", BufferUsage::StaticDraw,
+            vec![Vertex { position: Vec3::zero(), color: Rgba::red(), }]
         );
-        let cursor_mesh = mesh::Mesh::from_vertices(
-            &mesh_gl_program, "Cursor Mesh", ::gx::BufferUsage::StaticDraw,
+        let cursor_mesh = Mesh::from_vertices(
+            &mesh_gl_program, "Cursor Mesh", BufferUsage::StaticDraw,
             vec![
-                mesh::Vertex { position: Vec3::zero(), color: Rgba::red(), },
-                mesh::Vertex { position: Vec3::unit_x(), color: Rgba::green(), },
-                mesh::Vertex { position: Vec3::unit_y(), color: Rgba::blue(), },
+                Vertex { position: Vec3::zero(), color: Rgba::red(), },
+                Vertex { position: Vec3::unit_x(), color: Rgba::green(), },
+                Vertex { position: Vec3::unit_y(), color: Rgba::blue(), },
             ]
         );
-        let near = 0.001;
-        let far = 1000.;
+        let near = Self::DEFAULT_NEAR;
+        let far = Self::DEFAULT_FAR;
         let camera = Camera2D {
-            xform: {
-                let mut xform = Xform2D::default();
-                xform.position.z -= near;
-                xform
+            xform: Xform2D {
+                position: Self::DEFAULT_CAMERA_POSITION,
+                .. Default::default()
             },
             projection_mode: CameraProjectionMode::Ortho,
             fov_y_radians: 60_f32.to_radians(),
@@ -69,82 +80,95 @@ impl EditorSystem {
         };
         let mut s = Self {
             camera, cursor_mesh, grid_origin_mesh, grid_mesh_1, grid_mesh_01,
-            cursor_ray_origin: None, // FIXME not always true
             draw_grid_first: true,
             do_draw_grid: true,
             is_panning_camera: false,
-            previous_mouse_position: mouse_position,
+            camera_rotation_speed: 0.,
+            prev_camera_rotation_z_radians: 0.,
+            next_camera_rotation_z_radians: 0.,
         };
         s.reshape(viewport_size);
         s
     }
-    pub fn cursor_mvp(&self) -> Option<Mat4<f32>> {
-        self.cursor_ray_origin.map(|p| {
-            let m = Mat4::translation_3d(p);
-            self.camera.view_proj_matrix() * m
-        })
-    }
     fn reshape(&mut self, size: Extent2<u32>) {
-        self.camera.viewport_size = size;
-        let aspect = self.camera.aspect_ratio();
-        self.camera.frustum.right = aspect;
-        self.camera.frustum.left = -self.camera.frustum.right;
+        let c = &mut self.camera;
+        c.viewport_size = size;
+        c.frustum.right = c.aspect_ratio();
+        c.frustum.left = -c.frustum.right;
+    }
+    fn on_enter_editor(&mut self, g: &Game) {
+        unsafe {
+            gl::ClearColor(0.1, 0.2, 1., 1.);
+        }
+        g.platform.cursors.crosshair.set();
+    }
+    fn on_leave_editor(&mut self, g: &Game) {
+        unsafe {
+            gl::ClearColor(1., 1., 1., 1.);
+        }
+        g.platform.cursors.normal.set();
     }
 }
 
 impl System for EditorSystem {
-    fn name(&self) -> &str { "EditorSystem" }
+    fn name(&self) -> &str {
+        "EditorSystem"
+    }
     fn on_canvas_resized(&mut self, _: &Game, size: Extent2<u32>, _by_user: bool) {
         self.reshape(size);
     }
-    fn on_mouse_enter(&mut self, g: &Game) {
-        g.platform.cursors.crosshair.set();
-        let pos = g.platform.mouse_position();
-        self.on_mouse_motion(g, pos);
-    }
-    fn on_mouse_leave(&mut self, _: &Game) {
-        self.cursor_ray_origin = None;
-    }
-    fn on_mouse_motion(&mut self, _: &Game, pos: Vec2<i32>) {
-        {
-            let mut pos = pos;
-            pos.y = self.camera.viewport_size.h as i32 - pos.y;
-            let pos = Vec3::from(pos.map(|x| x as f32));
-
-            let mut prev = self.previous_mouse_position;
-            prev.y = self.camera.viewport_size.h as i32 - prev.y;
-            let prev = Vec3::from(prev.map(|x| x as f32));
-
+    fn on_mouse_motion(&mut self, g: &Game, pos: Vec2<i32>) {
+        if let Some(prev) = g.input.previous_mouse_position() {
             if self.is_panning_camera {
-                // FIXME: Rotate and scale
-                let d = pos - prev + Vec3::from(Vec2::from(self.camera.viewport_size.map(|x| x as f32) / 2.));
-                let dumb = Camera2D {
-                    xform: Default::default(), 
-                    .. self.camera
-                };
-                self.camera.xform.position -= dumb.viewport_to_world(d);
+                let o = self.camera.viewport_to_world(prev, 0.);
+                let p = self.camera.viewport_to_world(pos, 0.);
+                self.camera.xform.position -= (p - o) * self.camera.xform.scale.x;
+                self.camera.xform.position.z = Self::DEFAULT_CAMERA_POSITION.z;
             }
-
-            self.cursor_ray_origin = Some(self.camera.viewport_to_world(pos));
         }
-        
-        self.previous_mouse_position = pos;
     }
-    fn on_message(&mut self, _: &Game, msg: &Message) {
+    fn on_mouse_scroll(&mut self, _: &Game, delta: Vec2<i32>) {
+        self.camera.xform.scale *= Self::CAMERA_ZOOM_STEP_FACTOR.powf(delta.y as _);
+    }
+    fn on_message(&mut self, g: &Game, msg: &Message) {
+        let normal_camera_rotation_speed = Self::CAMERA_NORMAL_Z_ROTATION_SPEED_DEGREES.to_radians();
         match *msg {
+            Message::EnterEditor => self.on_enter_editor(g),
+            Message::LeaveEditor => self.on_leave_editor(g),
             Message::EditorToggleDrawGridFirst => self.draw_grid_first = !self.draw_grid_first,
             Message::EditorToggleGrid => self.do_draw_grid = !self.do_draw_grid,
             Message::EditorBeginPanCameraViaMouse => self.is_panning_camera = true,
             Message::EditorEndPanCameraViaMouse => self.is_panning_camera = false,
+            Message::EditorBeginRotateCameraLeft => self.camera_rotation_speed = normal_camera_rotation_speed,
+            Message::EditorBeginRotateCameraRight => self.camera_rotation_speed = -normal_camera_rotation_speed,
+            Message::EditorEndRotateCamera => self.camera_rotation_speed = 0.,
+            Message::EditorRecenterCamera => self.camera.xform.position = Self::DEFAULT_CAMERA_POSITION,
+            Message::EditorResetCameraRotation => {
+                self.camera.xform.rotation_z_radians = 0.;
+                self.prev_camera_rotation_z_radians = 0.;
+                self.next_camera_rotation_z_radians = 0.;
+            },
+            Message::EditorResetCameraZoom => self.camera.xform.scale = Vec2::one(),
         };
     }
-    fn draw(&mut self, g: &Game, _: f64) {
+    fn tick(&mut self, _: &Game, _: Duration, dt: Duration) {
+        let dt = dt.to_f64_seconds() as f32;
+        self.prev_camera_rotation_z_radians = self.next_camera_rotation_z_radians;
+        self.next_camera_rotation_z_radians += dt * self.camera_rotation_speed;
+    }
+    fn draw(&mut self, g: &Game, gfx_interp: f64) {
+        self.camera.xform.rotation_z_radians = ::v::Lerp::lerp(self.prev_camera_rotation_z_radians, self.next_camera_rotation_z_radians, gfx_interp as f32);
         unsafe {
             gl::UseProgram(g.mesh_gl_program.program().gl_id());
             gl::Viewport(0, 0, self.camera.viewport_size.w as _, self.camera.viewport_size.h as _);
 
-            let draw_cursor = || if let Some(mvp) = self.cursor_mvp().as_ref() {
-                g.mesh_gl_program.set_uniform_mvp(mvp);
+            let draw_cursor = || if let Some(pos) = g.input.mouse_position() {
+                let mvp = {
+                    let mut w = self.camera.viewport_to_world(pos, 0.);
+                    w.z += Self::CAMERA_Z_EPSILON; // XXX HACK
+                    self.camera.view_proj_matrix() * Mat4::translation_3d(w)
+                };
+                g.mesh_gl_program.set_uniform_mvp(&mvp);
                 gl::PointSize(8.);
                 gl::BindVertexArray(self.cursor_mesh.vao().gl_id());
                 gl::DrawArrays(gl::POINTS, 0, self.cursor_mesh.vertices.len() as _);
@@ -157,9 +181,10 @@ impl System for EditorSystem {
                     gl::DepthMask(gl::FALSE);
 
                     let mvp = {
-                        let pixel = self.camera.world_to_viewport(Vec3::zero()).map(|x| x.round() + 0.5);
-                        let m = Mat4::translation_3d(self.camera.viewport_to_world(pixel));
-                        self.camera.view_proj_matrix() * m
+                        let pixel = self.camera.world_to_viewport(Vec3::zero()).0;
+                        let mut w = self.camera.viewport_to_world(pixel, 0.);
+                        w.z += Self::CAMERA_Z_EPSILON; // XXX HACK
+                        self.camera.view_proj_matrix() * Mat4::translation_3d(w)
                     };
                     g.mesh_gl_program.set_uniform_mvp(&mvp);
                     gl::LineWidth(1.);

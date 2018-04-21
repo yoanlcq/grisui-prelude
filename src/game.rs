@@ -35,18 +35,19 @@ impl Game {
 
         let platform = Platform::new(name, w, h);
         let input = Input::default();
-        let messages = Default::default();
-
+        let messages = RefCell::new(VecDeque::with_capacity(16));
         let mesh_gl_program = mesh::Program::new();
-
         let systems = RefCell::new(vec![
             Box::new(InputSystem) as Box<System>,
             Box::new(PlatformSystem),
-            Box::new(editor::EditorSystem::new(&mesh_gl_program, platform.canvas_size(), platform.mouse_position())),
+            Box::new(editor::EditorSystem::new(&mesh_gl_program, platform.canvas_size())),
             Box::new(QuitSystem),
         ]);
 
         info!("Game: ... Done initializing.");
+
+        messages.borrow_mut().push_back(Message::EnterEditor);
+
         Self {
             wants_to_quit: Cell::new(false),
             platform,
@@ -60,7 +61,7 @@ impl Game {
         self.wants_to_quit.get()
     }
     pub fn pump_events(&self) {
-        // Required to shorten the RefMut's lifetime, so other system can borrow the event pump.
+        // Closure to shorten the RefMut's lifetime, so other systems can borrow the event pump.
         let poll_event = || self.platform.sdl_event_pump.borrow_mut().poll_event();
 
         while let Some(event) = poll_event() {
