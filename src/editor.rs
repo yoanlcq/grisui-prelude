@@ -19,6 +19,7 @@ pub struct EditorSystem {
     camera_rotation_speed: f32,
     prev_camera_rotation_z_radians: f32,
     next_camera_rotation_z_radians: f32,
+    is_active: bool,
 }
 
 fn create_grid_mesh(mesh_gl_program: &mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> Mesh {
@@ -86,6 +87,7 @@ impl EditorSystem {
             camera_rotation_speed: 0.,
             prev_camera_rotation_z_radians: 0.,
             next_camera_rotation_z_radians: 0.,
+            is_active: false,
         };
         s.reshape(viewport_size);
         s
@@ -101,12 +103,14 @@ impl EditorSystem {
             gl::ClearColor(0.1, 0.2, 1., 1.);
         }
         g.platform.cursors.crosshair.set();
+        self.is_active = true;
     }
     fn on_leave_editor(&mut self, g: &Game) {
         unsafe {
             gl::ClearColor(1., 1., 1., 1.);
         }
         g.platform.cursors.normal.set();
+        self.is_active = false;
     }
 }
 
@@ -118,6 +122,9 @@ impl System for EditorSystem {
         self.reshape(size);
     }
     fn on_mouse_motion(&mut self, g: &Game, pos: Vec2<i32>) {
+        if !self.is_active {
+            return;
+        }
         if let Some(prev) = g.input.previous_mouse_position() {
             if self.is_panning_camera {
                 let o = self.camera.viewport_to_world(prev, 0.);
@@ -128,13 +135,25 @@ impl System for EditorSystem {
         }
     }
     fn on_mouse_scroll(&mut self, _: &Game, delta: Vec2<i32>) {
+        if !self.is_active {
+            return;
+        }
         self.camera.xform.scale *= Self::CAMERA_ZOOM_STEP_FACTOR.powf(delta.y as _);
     }
     fn on_message(&mut self, g: &Game, msg: &Message) {
-        let normal_camera_rotation_speed = Self::CAMERA_NORMAL_Z_ROTATION_SPEED_DEGREES.to_radians();
         match *msg {
-            Message::EnterEditor => self.on_enter_editor(g),
-            Message::LeaveEditor => self.on_leave_editor(g),
+            Message::EnterEditor => { self.on_enter_editor(g); return; },
+            Message::LeaveEditor => { self.on_leave_editor(g); return; },
+            _ => (),
+        };
+
+        if !self.is_active {
+            return;
+        }
+
+        let normal_camera_rotation_speed = Self::CAMERA_NORMAL_Z_ROTATION_SPEED_DEGREES.to_radians();
+
+        match *msg {
             Message::EditorToggleDrawGridFirst => self.draw_grid_first = !self.draw_grid_first,
             Message::EditorToggleGrid => self.do_draw_grid = !self.do_draw_grid,
             Message::EditorBeginPanCameraViaMouse => self.is_panning_camera = true,
@@ -149,14 +168,21 @@ impl System for EditorSystem {
                 self.next_camera_rotation_z_radians = 0.;
             },
             Message::EditorResetCameraZoom => self.camera.xform.scale = Vec2::one(),
+            _ => (),
         };
     }
     fn tick(&mut self, _: &Game, _: Duration, dt: Duration) {
+        if !self.is_active {
+            return;
+        }
         let dt = dt.to_f64_seconds() as f32;
         self.prev_camera_rotation_z_radians = self.next_camera_rotation_z_radians;
         self.next_camera_rotation_z_radians += dt * self.camera_rotation_speed;
     }
     fn draw(&mut self, g: &Game, gfx_interp: f64) {
+        if !self.is_active {
+            return;
+        }
         self.camera.xform.rotation_z_radians = ::v::Lerp::lerp(self.prev_camera_rotation_z_radians, self.next_camera_rotation_z_radians, gfx_interp as f32);
         unsafe {
             gl::UseProgram(g.mesh_gl_program.program().gl_id());

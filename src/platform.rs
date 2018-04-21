@@ -13,6 +13,7 @@ pub struct Cursors {
     pub text: Sdl2Cursor,
     pub hand: Sdl2Cursor,
     pub crosshair: Sdl2Cursor, 
+    pub no: Sdl2Cursor, 
 }
 
 impl Cursors {
@@ -22,6 +23,7 @@ impl Cursors {
             text: Sdl2Cursor::from_system(SystemCursor::IBeam).unwrap(),
             hand: Sdl2Cursor::from_system(SystemCursor::Hand).unwrap(),
             crosshair: Sdl2Cursor::from_system(SystemCursor::Crosshair).unwrap(),
+            no: Sdl2Cursor::from_system(SystemCursor::No).unwrap(),
         }
     }
 }

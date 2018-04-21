@@ -6,7 +6,19 @@ use system::{self, System, Message};
 use input::{Input, InputSystem};
 use platform::{Platform, PlatformSystem};
 use editor;
+use gameplay;
 use mesh;
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum GameMode {
+    Editor,
+    Gameplay,
+}
+
+impl GameMode {
+    pub fn is_editor(&self) -> bool { *self == GameMode::Editor }
+    pub fn is_gameplay(&self) -> bool { *self == GameMode::Gameplay }
+}
 
 pub struct Game {
     pub wants_to_quit: Cell<bool>,
@@ -14,6 +26,7 @@ pub struct Game {
     pub input: Input,
     pub messages: RefCell<VecDeque<Message>>,
     pub systems: RefCell<Vec<Box<System>>>,
+    pub game_mode: Cell<GameMode>,
 
     pub mesh_gl_program: mesh::Program,
 }
@@ -41,11 +54,13 @@ impl Game {
             Box::new(InputSystem) as Box<System>,
             Box::new(PlatformSystem),
             Box::new(editor::EditorSystem::new(&mesh_gl_program, platform.canvas_size())),
+            Box::new(gameplay::GameplaySystem),
             Box::new(QuitSystem),
         ]);
 
         info!("Game: ... Done initializing.");
 
+        let game_mode = Cell::new(GameMode::Editor);
         messages.borrow_mut().push_back(Message::EnterEditor);
 
         Self {
@@ -54,6 +69,7 @@ impl Game {
             input,
             messages,
             systems,
+            game_mode,
             mesh_gl_program,
         }
     }
