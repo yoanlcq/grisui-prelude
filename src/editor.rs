@@ -3,15 +3,17 @@ use gx::{Object, BufferUsage};
 use system::*;
 use v::{Vec3, Rgba, Mat4};
 use camera::OrthoCamera2D;
-use mesh::{self, Mesh, Vertex};
+use mesh::{vertex_array, color_mesh::{self, Vertex}};
 use duration_ext::DurationExt;
+
+type ColorVertexArray = vertex_array::VertexArray<color_mesh::Program>;
 
 pub struct EditorSystem {
     camera: OrthoCamera2D,
-    grid_origin_mesh: Mesh,
-    grid_mesh_1: Mesh,
-    grid_mesh_01: Mesh,
-    cursor_mesh: Mesh,
+    grid_origin_vertices: ColorVertexArray,
+    grid_vertices_1: ColorVertexArray,
+    grid_vertices_01: ColorVertexArray,
+    cursor_vertices: ColorVertexArray,
     draw_grid_first: bool,
     do_draw_grid: bool,
     is_panning_camera: bool,
@@ -20,11 +22,11 @@ pub struct EditorSystem {
     next_camera_rotation_z_radians: f32,
     is_active: bool,
     primary_color: Rgba<f32>,
-    draft_mesh: Mesh,
-    draft_mesh_ended: bool,
+    draft_vertices: ColorVertexArray,
+    draft_vertices_ended: bool,
 }
 
-fn create_grid_mesh(mesh_gl_program: &mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> Mesh {
+fn create_grid_vertices(color_mesh_gl_program: &color_mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> ColorVertexArray {
     let (w, h) = size.map(|x| x as isize).into_tuple();
     let mut vertices = Vec::with_capacity((w * h) as usize);
     for y in (-h) .. (1 + h) {
@@ -53,7 +55,7 @@ fn create_grid_mesh(mesh_gl_program: &mesh::Program, size: Extent2<usize>, color
             vertices.push(Vertex { position: Vec3::new(x as f32 * scale.w,  h as f32 * scale.h, 0.), color, });
         }
     }
-    Mesh::from_vertices(&mesh_gl_program, "Grid Mesh", BufferUsage::StaticDraw, vertices)
+    ColorVertexArray::from_vertices(&color_mesh_gl_program, "Grid Vertices", BufferUsage::StaticDraw, vertices)
 }
 
 impl EditorSystem {
@@ -62,29 +64,29 @@ impl EditorSystem {
     const CAMERA_NEAR: f32 = 0.; // It does work for an orthographic camera.
     const CAMERA_FAR: f32 = 1024.;
 
-    pub fn new(mesh_gl_program: &mesh::Program, viewport_size: Extent2<u32>) -> Self {
-        let grid_mesh_1 = create_grid_mesh(mesh_gl_program, Extent2::new(8, 8), Rgba::white(), Extent2::one());
-        let grid_mesh_01 = create_grid_mesh(mesh_gl_program, Extent2::new(64, 64), Rgba::new(1., 1., 1., 0.2), Extent2::one()/10.);
-        let grid_origin_mesh = Mesh::from_vertices(
-            &mesh_gl_program, "Grid Origin Mesh", BufferUsage::StaticDraw,
+    pub fn new(color_mesh_gl_program: &color_mesh::Program, viewport_size: Extent2<u32>) -> Self {
+        let grid_vertices_1 = create_grid_vertices(color_mesh_gl_program, Extent2::new(8, 8), Rgba::white(), Extent2::one());
+        let grid_vertices_01 = create_grid_vertices(color_mesh_gl_program, Extent2::new(64, 64), Rgba::new(1., 1., 1., 0.2), Extent2::one()/10.);
+        let grid_origin_vertices = ColorVertexArray::from_vertices(
+            &color_mesh_gl_program, "Grid Origin Vertices", BufferUsage::StaticDraw,
             vec![Vertex { position: Vec3::zero(), color: Rgba::red(), }]
         );
-        let cursor_mesh = Mesh::from_vertices(
-            &mesh_gl_program, "Cursor Mesh", BufferUsage::StaticDraw,
+        let cursor_vertices = ColorVertexArray::from_vertices(
+            &color_mesh_gl_program, "Cursor Vertices", BufferUsage::StaticDraw,
             vec![
                 Vertex { position: Vec3::zero(), color: Rgba::red(), },
                 Vertex { position: Vec3::unit_x(), color: Rgba::green(), },
                 Vertex { position: Vec3::unit_y(), color: Rgba::blue(), },
             ]
         );
-        let draft_mesh = Mesh::from_vertices(
-            &mesh_gl_program, "Draft Mesh", BufferUsage::DynamicDraw, vec![]
+        let draft_vertices = ColorVertexArray::from_vertices(
+            &color_mesh_gl_program, "Draft Vertices", BufferUsage::DynamicDraw, vec![]
         );
         let camera = OrthoCamera2D::new(viewport_size, Self::CAMERA_NEAR, Self::CAMERA_FAR);
         Self {
-            camera, cursor_mesh, grid_origin_mesh, grid_mesh_1, grid_mesh_01,
-            draft_mesh,
-            draft_mesh_ended: false,
+            camera, cursor_vertices, grid_origin_vertices, grid_vertices_1, grid_vertices_01,
+            draft_vertices,
+            draft_vertices_ended: false,
             primary_color: Rgba::red(),
             draw_grid_first: true,
             do_draw_grid: true,
@@ -114,20 +116,20 @@ impl EditorSystem {
 
     fn add_vertex_at_current_mouse_position(&mut self, g: &Game) {
         debug_assert!(self.is_active);
-        if self.draft_mesh_ended {
+        if self.draft_vertices_ended {
             return;
         }
         if let Some(pos) = g.input.mouse_position() {
             let color = self.primary_color;
             let mut position = self.camera.viewport_to_world(pos, 0.);
             // position.z = 0.;
-            self.draft_mesh.vertices.push(Vertex { position, color, });
-            self.draft_mesh.update_vbo();
+            self.draft_vertices.vertices.push(Vertex { position, color, });
+            self.draft_vertices.update_vbo();
         }
     }
     fn end_polygon(&mut self, _g: &Game) {
         debug_assert!(self.is_active);
-        self.draft_mesh_ended = true;
+        self.draft_vertices_ended = true;
     }
     fn toggle_select_all(&mut self, _g: &Game) {
         debug_assert!(self.is_active);
@@ -135,9 +137,9 @@ impl EditorSystem {
     }
     fn deleted_selected(&mut self, _g: &Game) {
         debug_assert!(self.is_active);
-        self.draft_mesh.vertices.clear();
-        self.draft_mesh.update_vbo();
-        self.draft_mesh_ended = false;
+        self.draft_vertices.vertices.clear();
+        self.draft_vertices.update_vbo();
+        self.draft_vertices_ended = false;
     }
 }
 
@@ -221,22 +223,22 @@ impl System for EditorSystem {
                     let w = self.camera.viewport_to_world(pos, 0.);
                     self.camera.view_proj_matrix() * Mat4::translation_3d(w)
                 };
-                g.mesh_gl_program.set_uniform_mvp(&mvp);
+                g.color_mesh_gl_program.set_uniform_mvp(&mvp);
                 gl::PointSize(8.);
-                gl::BindVertexArray(self.cursor_mesh.vao().gl_id());
-                gl::DrawArrays(gl::POINTS, 0, self.cursor_mesh.vertices.len() as _);
-                gl::DrawArrays(gl::TRIANGLES, 0, self.cursor_mesh.vertices.len() as _);
+                gl::BindVertexArray(self.cursor_vertices.vao().gl_id());
+                gl::DrawArrays(gl::POINTS, 0, self.cursor_vertices.vertices.len() as _);
+                gl::DrawArrays(gl::TRIANGLES, 0, self.cursor_vertices.vertices.len() as _);
             };
 
-            let draw_draft_mesh = || {
+            let draw_draft_vertices = || {
                 let mvp = self.camera.view_proj_matrix();
-                g.mesh_gl_program.set_uniform_mvp(&mvp);
+                g.color_mesh_gl_program.set_uniform_mvp(&mvp);
                 gl::PointSize(8.);
                 gl::LineWidth(8.);
-                gl::BindVertexArray(self.draft_mesh.vao().gl_id());
-                gl::DrawArrays(gl::POINTS, 0, self.draft_mesh.vertices.len() as _);
-                let topology = if self.draft_mesh_ended { gl::LINE_LOOP } else { gl::LINE_STRIP };
-                gl::DrawArrays(topology, 0, self.draft_mesh.vertices.len() as _);
+                gl::BindVertexArray(self.draft_vertices.vao().gl_id());
+                gl::DrawArrays(gl::POINTS, 0, self.draft_vertices.vertices.len() as _);
+                let topology = if self.draft_vertices_ended { gl::LINE_LOOP } else { gl::LINE_STRIP };
+                gl::DrawArrays(topology, 0, self.draft_vertices.vertices.len() as _);
             };
 
             let draw_grid = || {
@@ -249,18 +251,18 @@ impl System for EditorSystem {
                         let w = self.camera.viewport_to_world(pixel, 0.);
                         self.camera.view_proj_matrix() * Mat4::translation_3d(w)
                     };
-                    g.mesh_gl_program.set_uniform_mvp(&mvp);
+                    g.color_mesh_gl_program.set_uniform_mvp(&mvp);
                     gl::LineWidth(1.);
 
-                    gl::BindVertexArray(self.grid_mesh_01.vao().gl_id());
-                    gl::DrawArrays(gl::LINES, 0, self.grid_mesh_01.vertices.len() as _);
+                    gl::BindVertexArray(self.grid_vertices_01.vao().gl_id());
+                    gl::DrawArrays(gl::LINES, 0, self.grid_vertices_01.vertices.len() as _);
 
-                    gl::BindVertexArray(self.grid_mesh_1.vao().gl_id());
-                    gl::DrawArrays(gl::LINES, 0, self.grid_mesh_1.vertices.len() as _);
+                    gl::BindVertexArray(self.grid_vertices_1.vao().gl_id());
+                    gl::DrawArrays(gl::LINES, 0, self.grid_vertices_1.vertices.len() as _);
 
                     gl::PointSize(8.);
-                    gl::BindVertexArray(self.grid_origin_mesh.vao().gl_id());
-                    gl::DrawArrays(gl::POINTS, 0, self.grid_origin_mesh.vertices.len() as _);
+                    gl::BindVertexArray(self.grid_origin_vertices.vao().gl_id());
+                    gl::DrawArrays(gl::POINTS, 0, self.grid_origin_vertices.vertices.len() as _);
 
                     gl::DepthMask(gl::TRUE);
                     gl::Enable(gl::DEPTH_TEST);
@@ -271,15 +273,15 @@ impl System for EditorSystem {
                 let vp = self.camera.viewport_size();
                 gl::Viewport(0, 0, vp.w as _, vp.h as _);
             }
-            gl::UseProgram(g.mesh_gl_program.program().gl_id());
+            gl::UseProgram(g.color_mesh_gl_program.program().gl_id());
 
             if self.draw_grid_first {
                 draw_grid();
                 draw_cursor();
-                draw_draft_mesh();
+                draw_draft_vertices();
             } else {
                 draw_cursor();
-                draw_draft_mesh();
+                draw_draft_vertices();
                 draw_grid();
             }
 

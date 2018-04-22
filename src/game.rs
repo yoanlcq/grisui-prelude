@@ -28,7 +28,7 @@ pub struct Game {
     pub systems: RefCell<Vec<Box<System>>>,
     pub game_mode: Cell<GameMode>,
 
-    pub mesh_gl_program: mesh::Program,
+    pub color_mesh_gl_program: mesh::color_mesh::Program,
 }
 
 pub struct QuitSystem;
@@ -49,11 +49,11 @@ impl Game {
         let platform = Platform::new(name, w, h);
         let input = Input::default();
         let messages = RefCell::new(VecDeque::with_capacity(16));
-        let mesh_gl_program = mesh::Program::new();
+        let color_mesh_gl_program = mesh::color_mesh::Program::new();
         let systems = RefCell::new(vec![
             Box::new(InputSystem) as Box<System>,
             Box::new(PlatformSystem),
-            Box::new(editor::EditorSystem::new(&mesh_gl_program, platform.canvas_size())),
+            Box::new(editor::EditorSystem::new(&color_mesh_gl_program, platform.canvas_size())),
             Box::new(gameplay::GameplaySystem::new()),
             Box::new(QuitSystem),
         ]);
@@ -70,7 +70,7 @@ impl Game {
             messages,
             systems,
             game_mode,
-            mesh_gl_program,
+            color_mesh_gl_program,
         }
     }
     pub fn should_quit(&self) -> bool {

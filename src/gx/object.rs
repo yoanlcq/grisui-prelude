@@ -20,6 +20,9 @@ pub enum Namespace {
 
 pub trait Object: Sized {
     const NAMESPACE: Namespace;
+    // Unsafe because it takes ownership of the raw GL object, which might not have been properly
+    // set up.
+    unsafe fn from_gl_id(id: GLuint) -> Self;
     fn gl_id(&self) -> GLuint;
     fn gl_create() -> GLuint;
     fn gl_gen(v: &mut [GLuint]);
@@ -57,6 +60,7 @@ macro_rules! object {
         }
         impl Object for $Object {
             const NAMESPACE: Namespace = Namespace::$Namespace;
+            unsafe fn from_gl_id(id: GLuint) -> Self { $Object(id) }
             fn gl_id(&self) -> GLuint { self.0 }
             fn gl_create() -> GLuint { create::$single() }
             fn gl_gen(v: &mut [GLuint]) { gen::$plural(v); }

@@ -9,6 +9,7 @@ use gl;
 use gl::types::*;
 use gx;
 
+
 pub fn configure_sdl2_gl_attr(gl_attr: GLAttr) {
     gl_attr.set_context_profile(GLProfile::Core);
     gl_attr.set_context_flags().debug().set();
