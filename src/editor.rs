@@ -30,6 +30,7 @@ pub struct EditorSystem {
     text: Text,
     text_position: Vec2<i32>,
     text_color: Rgba<f32>,
+    font_id: FontID,
 }
 
 fn create_grid_vertices(color_mesh_gl_program: &color_mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> ColorVertexArray {
@@ -105,6 +106,7 @@ impl EditorSystem {
             text,
             text_position: (viewport_size.map(|x| x as i32) / 2).into(),
             text_color: Rgba::black(),
+            font_id: FontID::Normal,
         }
     }
     fn on_enter_editor(&mut self, g: &Game) {
@@ -115,7 +117,7 @@ impl EditorSystem {
         }
         g.platform.cursors.crosshair.set();
         self.text.string = "If the universe is infinite,\nthere is an infinite number of worlds\nwhere this story takes place.".to_owned();
-        self.text.update_gl(&g.fonts.fonts[&FontID::Debug]);
+        self.text.update_gl(&g.fonts.fonts[&self.font_id]);
     }
     fn on_leave_editor(&mut self, g: &Game) {
         debug_assert!(self.is_active);
@@ -161,6 +163,8 @@ impl System for EditorSystem {
     }
     fn on_canvas_resized(&mut self, _: &Game, size: Extent2<u32>, _by_user: bool) {
         self.camera.set_viewport_size(size);
+        self.text_position = (self.camera.viewport_size() / 2).map(|x| x as i32).into();
+        self.text_position.y -= 1;
     }
     fn on_mouse_motion(&mut self, g: &Game, pos: Vec2<i32>) {
         if !self.is_active {
@@ -288,6 +292,8 @@ impl System for EditorSystem {
             }
 
 
+            // Render the rest
+
             gl::UseProgram(g.color_mesh_gl_program.program().gl_id());
 
             if self.draw_grid_first {
@@ -301,25 +307,25 @@ impl System for EditorSystem {
             }
 
 
-            // Render text
+            // Render text (last, so it always appears on top of grid)
 
             gl::Disable(gl::DEPTH_TEST);
-
             gl::UseProgram(g.text_gl_program.program().gl_id());
             let mvp = {
-                let w = 2. * g.fonts.fonts[&FontID::Debug].texture_size.w as f32 / self.camera.viewport_size().w as f32;
-                let h = 2. * g.fonts.fonts[&FontID::Debug].texture_size.h as f32 / self.camera.viewport_size().h as f32;
-                Mat4::scaling_3d(Vec3::new(w, h, 1.))
+                let vp_size = self.camera.viewport_size().map(|x| x as f32);
+                let Extent2 { w, h } = g.fonts.fonts[&self.font_id].texture_size.map(|x| x as f32) * 2. / vp_size;
+                let t = self.text_position.map(|x| x as f32) / vp_size;
+                let t = (Vec2::from(t) - 0.5) * 2.;
+                Mat4::<f32>::translation_3d(t) * Mat4::scaling_3d(Vec3::new(w, h, 1.))
             };
             g.text_gl_program.set_uniform_mvp(&mvp);
-            g.text_gl_program.set_uniform_font_atlas_via_font_id(FontID::Debug);
+            g.text_gl_program.set_uniform_font_atlas_via_font_id(self.font_id);
             g.text_gl_program.set_uniform_color(self.text_color);
             gl::BindVertexArray(self.text.vertices.vao().gl_id());
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.text.indices.ibo().gl_id());
             gl::DrawElements(gl::TRIANGLES, self.text.indices.indices.len() as _, gl::UNSIGNED_SHORT, ptr::null_mut());
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
             gl::BindVertexArray(0);
-
             gl::Enable(gl::DEPTH_TEST);
 
 

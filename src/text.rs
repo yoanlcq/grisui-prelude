@@ -70,8 +70,6 @@ impl Text {
             world_cur.x += offset.x;
             world_cur.y -= texcoords.h - offset.y;
 
-            info!("Text: '{}' world_cur={:?}", c, world_cur);
-
             let bottom_left = Vertex {
                 position: world_cur,
                 texcoords: texcoords.position() + Vec2::unit_y() * texcoords.h,
