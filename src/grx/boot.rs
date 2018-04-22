@@ -27,7 +27,7 @@ fn setup_gl_state() {
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
         gl::Enable(gl::CULL_FACE);
         gl::CullFace(gl::BACK);
-        // gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+        gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
         gl::ClearColor(1., 0., 1., 1.);
     }
 }

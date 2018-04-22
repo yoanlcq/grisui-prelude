@@ -32,6 +32,7 @@ pub mod xform;
 pub mod message;
 pub mod paths;
 pub mod font;
+pub mod text;
 
 use std::time::Duration;
 use game::Game;

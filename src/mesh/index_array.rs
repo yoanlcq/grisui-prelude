@@ -44,7 +44,12 @@ impl<T: VertexIndex> IndexArray<T> {
     ) -> Self
     {
         let ibo = gx::Buffer::new();
-        grx::set_label(&ibo, &CString::new(label.to_owned() + " IBO").unwrap().into_bytes_with_nul());
+        // Binding the buffer once before setting its label is necessary (we get GL_INVALID_VALUE otherwise).
+        unsafe {
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ibo.gl_id());
+            grx::set_label(&ibo, &CString::new(label.to_owned() + " IBO").unwrap().into_bytes_with_nul());
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
+        }
         let array = Self {
             buffer_usage, indices, ibo,
         };

@@ -33,6 +33,7 @@ pub struct Game {
     pub paths: paths::Paths,
     pub fonts: font::Fonts,
     pub color_mesh_gl_program: mesh::color_mesh::Program,
+    pub text_gl_program: mesh::text::Program,
 }
 
 pub struct QuitSystem;
@@ -54,6 +55,7 @@ impl Game {
         let messages = RefCell::new(VecDeque::with_capacity(16));
 
         let color_mesh_gl_program = mesh::color_mesh::Program::new();
+        let text_gl_program = mesh::text::Program::new();
 
         let paths = paths::Paths::new();
         let fonts = font::Fonts::from_path(&paths.fonts).unwrap();
@@ -61,7 +63,7 @@ impl Game {
         let systems = RefCell::new(vec![
             Box::new(InputSystem) as Box<System>,
             Box::new(PlatformSystem),
-            Box::new(editor::EditorSystem::new(&color_mesh_gl_program, platform.canvas_size())),
+            Box::new(editor::EditorSystem::new(&color_mesh_gl_program, &text_gl_program, platform.canvas_size())),
             Box::new(gameplay::GameplaySystem::new()),
             Box::new(QuitSystem),
         ]);
@@ -81,6 +83,7 @@ impl Game {
             paths,
             fonts,
             color_mesh_gl_program,
+            text_gl_program,
         }
     }
     pub fn should_quit(&self) -> bool {

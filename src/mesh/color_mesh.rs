@@ -79,7 +79,7 @@ void main() {
             Ok(i) => i,
             Err(s) => {
                 error!("Failed to compile vertex shader:\n{}", s);
-                panic!()
+                panic!("Failed to compile vertex shader:\n{}", s);
             },
         };
         grx::set_label(&vs, b"Mesh Vertex Shader");
@@ -87,7 +87,7 @@ void main() {
             Ok(i) => i,
             Err(s) => {
                 error!("Failed to compile fragment shader:\n{}", s);
-                panic!()
+                panic!("Failed to compile fragment shader:\n{}", s);
             },
         };
         grx::set_label(&fs, b"Mesh Fragment Shader");
@@ -95,7 +95,7 @@ void main() {
             Ok(i) => i,
             Err(s) => {
                 error!("Failed to link GL program:\n{}", s);
-                panic!()
+                panic!("Failed to link GL program:\n{}", s);
             },
         };
         grx::set_label(&program, b"Color Mesh Program");

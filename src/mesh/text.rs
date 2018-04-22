@@ -89,7 +89,13 @@ uniform vec4 u_color;
 in vec2 v_texcoords;
 out vec4 f_color;
 void main() {
-    f_color = vec4(u_color.rgb, texture2D(u_atlas, v_texcoords).r);
+    float alpha = texture2D(u_atlas, v_texcoords).r;
+    /*
+    if (alpha <= 0.001) {
+        discard;
+    }
+    */
+    f_color = vec4(u_color.rgb, alpha);
 }
 \0";
 
@@ -101,7 +107,7 @@ void main() {
             Ok(i) => i,
             Err(s) => {
                 error!("Failed to compile vertex shader:\n{}", s);
-                panic!()
+                panic!("Failed to compile vertex shader:\n{}", s);
             },
         };
         grx::set_label(&vs, b"Text Vertex Shader");
@@ -109,7 +115,7 @@ void main() {
             Ok(i) => i,
             Err(s) => {
                 error!("Failed to compile fragment shader:\n{}", s);
-                panic!()
+                panic!("Failed to compile fragment shader:\n{}", s);
             },
         };
         grx::set_label(&vs, b"Text Fragment Shader");
@@ -117,7 +123,7 @@ void main() {
             Ok(i) => i,
             Err(s) => {
                 error!("Failed to link GL program:\n{}", s);
-                panic!()
+                panic!("Failed to link GL program:\n{}", s);
             },
         };
         grx::set_label(&vs, b"Text Program");

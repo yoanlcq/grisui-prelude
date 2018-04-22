@@ -1,10 +1,13 @@
+use std::ptr;
 use gl;
 use gx::{Object, BufferUsage};
 use system::*;
 use v::{Vec3, Rgba, Mat4};
 use camera::OrthoCamera2D;
-use mesh::{vertex_array, color_mesh::{self, Vertex}};
+use mesh::{self, vertex_array, color_mesh::{self, Vertex}};
 use duration_ext::DurationExt;
+use text::Text;
+use font::FontID;
 
 type ColorVertexArray = vertex_array::VertexArray<color_mesh::Program>;
 
@@ -24,6 +27,9 @@ pub struct EditorSystem {
     primary_color: Rgba<f32>,
     draft_vertices: ColorVertexArray,
     draft_vertices_ended: bool,
+    text: Text,
+    text_position: Vec2<i32>,
+    text_color: Rgba<f32>,
 }
 
 fn create_grid_vertices(color_mesh_gl_program: &color_mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> ColorVertexArray {
@@ -64,7 +70,7 @@ impl EditorSystem {
     const CAMERA_NEAR: f32 = 0.; // It does work for an orthographic camera.
     const CAMERA_FAR: f32 = 1024.;
 
-    pub fn new(color_mesh_gl_program: &color_mesh::Program, viewport_size: Extent2<u32>) -> Self {
+    pub fn new(color_mesh_gl_program: &color_mesh::Program, text_gl_program: &mesh::text::Program, viewport_size: Extent2<u32>) -> Self {
         let grid_vertices_1 = create_grid_vertices(color_mesh_gl_program, Extent2::new(8, 8), Rgba::white(), Extent2::one());
         let grid_vertices_01 = create_grid_vertices(color_mesh_gl_program, Extent2::new(64, 64), Rgba::new(1., 1., 1., 0.2), Extent2::one()/10.);
         let grid_origin_vertices = ColorVertexArray::from_vertices(
@@ -82,6 +88,7 @@ impl EditorSystem {
         let draft_vertices = ColorVertexArray::from_vertices(
             &color_mesh_gl_program, "Draft Vertices", BufferUsage::DynamicDraw, vec![]
         );
+        let text = Text::new(text_gl_program, "Editor Text");
         let camera = OrthoCamera2D::new(viewport_size, Self::CAMERA_NEAR, Self::CAMERA_FAR);
         Self {
             camera, cursor_vertices, grid_origin_vertices, grid_vertices_1, grid_vertices_01,
@@ -95,6 +102,9 @@ impl EditorSystem {
             prev_camera_rotation_z_radians: 0.,
             next_camera_rotation_z_radians: 0.,
             is_active: false,
+            text,
+            text_position: (viewport_size.map(|x| x as i32) / 2).into(),
+            text_color: Rgba::black(),
         }
     }
     fn on_enter_editor(&mut self, g: &Game) {
@@ -104,6 +114,8 @@ impl EditorSystem {
             gl::ClearColor(0.1, 0.2, 1., 1.);
         }
         g.platform.cursors.crosshair.set();
+        self.text.string = "If the universe is infinite,\nthere is an infinite number of worlds\nwhere this story takes place.".to_owned();
+        self.text.update_gl(&g.fonts.fonts[&FontID::Debug]);
     }
     fn on_leave_editor(&mut self, g: &Game) {
         debug_assert!(self.is_active);
@@ -269,10 +281,13 @@ impl System for EditorSystem {
                 }
             };
 
+
             {
                 let vp = self.camera.viewport_size();
                 gl::Viewport(0, 0, vp.w as _, vp.h as _);
             }
+
+
             gl::UseProgram(g.color_mesh_gl_program.program().gl_id());
 
             if self.draw_grid_first {
@@ -284,6 +299,29 @@ impl System for EditorSystem {
                 draw_draft_vertices();
                 draw_grid();
             }
+
+
+            // Render text
+
+            gl::Disable(gl::DEPTH_TEST);
+
+            gl::UseProgram(g.text_gl_program.program().gl_id());
+            let mvp = {
+                let w = 2. * g.fonts.fonts[&FontID::Debug].texture_size.w as f32 / self.camera.viewport_size().w as f32;
+                let h = 2. * g.fonts.fonts[&FontID::Debug].texture_size.h as f32 / self.camera.viewport_size().h as f32;
+                Mat4::scaling_3d(Vec3::new(w, h, 1.))
+            };
+            g.text_gl_program.set_uniform_mvp(&mvp);
+            g.text_gl_program.set_uniform_font_atlas_via_font_id(FontID::Debug);
+            g.text_gl_program.set_uniform_color(self.text_color);
+            gl::BindVertexArray(self.text.vertices.vao().gl_id());
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.text.indices.ibo().gl_id());
+            gl::DrawElements(gl::TRIANGLES, self.text.indices.indices.len() as _, gl::UNSIGNED_SHORT, ptr::null_mut());
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
+            gl::BindVertexArray(0);
+
+            gl::Enable(gl::DEPTH_TEST);
+
 
             gl::BindVertexArray(0);
             gl::UseProgram(0);
