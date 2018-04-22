@@ -8,6 +8,8 @@ use platform::{Platform, PlatformSystem};
 use editor;
 use gameplay;
 use mesh;
+use font;
+use paths;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum GameMode {
@@ -28,6 +30,8 @@ pub struct Game {
     pub systems: RefCell<Vec<Box<System>>>,
     pub game_mode: Cell<GameMode>,
 
+    pub paths: paths::Paths,
+    pub fonts: font::Fonts,
     pub color_mesh_gl_program: mesh::color_mesh::Program,
 }
 
@@ -41,7 +45,6 @@ impl System for QuitSystem {
     }
 }
 
-
 impl Game {
     pub fn new(name: &str, w: u32, h: u32) -> Self {
         info!("Game: Initializing...");
@@ -49,7 +52,12 @@ impl Game {
         let platform = Platform::new(name, w, h);
         let input = Input::default();
         let messages = RefCell::new(VecDeque::with_capacity(16));
+
         let color_mesh_gl_program = mesh::color_mesh::Program::new();
+
+        let paths = paths::Paths::new();
+        let fonts = font::Fonts::from_path(&paths.fonts).unwrap();
+
         let systems = RefCell::new(vec![
             Box::new(InputSystem) as Box<System>,
             Box::new(PlatformSystem),
@@ -70,6 +78,8 @@ impl Game {
             messages,
             systems,
             game_mode,
+            paths,
+            fonts,
             color_mesh_gl_program,
         }
     }

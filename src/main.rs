@@ -30,6 +30,7 @@ pub mod gameplay;
 pub mod camera;
 pub mod xform;
 pub mod message;
+pub mod paths;
 pub mod font;
 
 use std::time::Duration;
