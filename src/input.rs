@@ -107,6 +107,15 @@ impl System for InputSystem {
                 send(Message::EditorResetCameraRotation);
                 send(Message::EditorResetCameraZoom);
             },
+            Keycode::Return => if key.is_down() {
+                send(Message::EditorEndPolygon);
+            },
+            Keycode::A => if key.is_down() {
+                send(Message::EditorToggleSelectAll);
+            },
+            Keycode::Backspace | Keycode::Delete | Keycode::X => if key.is_down() {
+                send(Message::EditorDeleteSelected);
+            },
             _ => (),
         };
     }

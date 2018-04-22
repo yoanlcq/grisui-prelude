@@ -22,6 +22,7 @@ pub struct EditorSystem {
     is_active: bool,
     primary_color: Rgba<f32>,
     draft_mesh: Mesh,
+    draft_mesh_ended: bool,
 }
 
 fn create_grid_mesh(mesh_gl_program: &mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> Mesh {
@@ -103,6 +104,7 @@ impl EditorSystem {
         let mut s = Self {
             camera, cursor_mesh, grid_origin_mesh, grid_mesh_1, grid_mesh_01,
             draft_mesh,
+            draft_mesh_ended: false,
             primary_color: Rgba::red(),
             draw_grid_first: true,
             do_draw_grid: true,
@@ -122,22 +124,27 @@ impl EditorSystem {
         c.frustum.left = -c.frustum.right;
     }
     fn on_enter_editor(&mut self, g: &Game) {
+        debug_assert!(!self.is_active);
+        self.is_active = true;
         unsafe {
             gl::ClearColor(0.1, 0.2, 1., 1.);
         }
         g.platform.cursors.crosshair.set();
-        self.is_active = true;
     }
     fn on_leave_editor(&mut self, g: &Game) {
+        debug_assert!(self.is_active);
+        self.is_active = false;
         unsafe {
             gl::ClearColor(1., 1., 1., 1.);
         }
         g.platform.cursors.normal.set();
-        self.is_active = false;
     }
 
     fn add_vertex_at_current_mouse_position(&mut self, g: &Game) {
-        assert!(self.is_active);
+        debug_assert!(self.is_active);
+        if self.draft_mesh_ended {
+            return;
+        }
         if let Some(pos) = g.input.mouse_position() {
             let color = self.primary_color;
             let mut position = self.camera.viewport_to_world(pos, 0.);
@@ -145,6 +152,20 @@ impl EditorSystem {
             self.draft_mesh.vertices.push(Vertex { position, color, });
             self.draft_mesh.update_vbo();
         }
+    }
+    fn end_polygon(&mut self, _g: &Game) {
+        debug_assert!(self.is_active);
+        self.draft_mesh_ended = true;
+    }
+    fn toggle_select_all(&mut self, _g: &Game) {
+        debug_assert!(self.is_active);
+        unimplemented!{}
+    }
+    fn deleted_selected(&mut self, _g: &Game) {
+        debug_assert!(self.is_active);
+        self.draft_mesh_ended = false;
+        self.draft_mesh.vertices.clear();
+        self.draft_mesh.update_vbo();
     }
 }
 
@@ -203,6 +224,9 @@ impl System for EditorSystem {
             },
             Message::EditorResetCameraZoom => self.camera.xform.scale = Vec2::one(),
             Message::EditorAddVertexAtCurrentMousePosition => self.add_vertex_at_current_mouse_position(g),
+            Message::EditorEndPolygon => self.end_polygon(g),
+            Message::EditorToggleSelectAll => self.toggle_select_all(g),
+            Message::EditorDeleteSelected => self.deleted_selected(g),
             _ => (),
         };
     }
@@ -243,7 +267,8 @@ impl System for EditorSystem {
                 gl::LineWidth(8.);
                 gl::BindVertexArray(self.draft_mesh.vao().gl_id());
                 gl::DrawArrays(gl::POINTS, 0, self.draft_mesh.vertices.len() as _);
-                gl::DrawArrays(gl::LINE_STRIP, 0, self.draft_mesh.vertices.len() as _);
+                let topology = if self.draft_mesh_ended { gl::LINE_LOOP } else { gl::LINE_STRIP };
+                gl::DrawArrays(topology, 0, self.draft_mesh.vertices.len() as _);
             };
 
             let draw_grid = || {

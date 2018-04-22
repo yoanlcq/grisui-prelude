@@ -13,6 +13,9 @@ pub enum Message {
     EditorResetCameraRotation,
     EditorResetCameraZoom,
     EditorAddVertexAtCurrentMousePosition,
+    EditorEndPolygon,
+    EditorToggleSelectAll,
+    EditorDeleteSelected,
 
     EnterGameplay,
     LeaveGameplay,
