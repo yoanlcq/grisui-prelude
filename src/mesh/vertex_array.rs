@@ -25,12 +25,19 @@ impl<Program: ProgramAttribs> VertexArray<Program> {
             gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo.gl_id());
             // NOTE: Be careful not to actually index the Vec with range.
             // Will cause panics because we care about the capacity, not the length!
-            gl::BufferData(gl::ARRAY_BUFFER, ((range.end - range.start) * mem::size_of::<Program::Vertex>()) as _, self.vertices.as_ptr().add(range.start) as _, self.buffer_usage as _);
+            let offset = range.start * mem::size_of::<Program::Vertex>();
+            let size = (range.end - range.start) * mem::size_of::<Program::Vertex>();
+            let data = self.vertices.as_ptr().add(range.start);
+            gl::BufferSubData(gl::ARRAY_BUFFER, offset as _, size as _, data as _);
             gl::BindBuffer(gl::ARRAY_BUFFER, 0);
         }
     }
-    pub fn update_vbo(&self) {
-        self.update_vbo_range(0..self.vertices.capacity());
+    pub fn update_and_resize_vbo(&self) {
+        unsafe {
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo.gl_id());
+            gl::BufferData(gl::ARRAY_BUFFER, (self.vertices.capacity() * mem::size_of::<Program::Vertex>()) as _, self.vertices.as_ptr() as _, self.buffer_usage as _);
+            gl::BindBuffer(gl::ARRAY_BUFFER, 0);
+        }
     }
     pub fn from_vertices(
         prog: &Program,
@@ -66,7 +73,7 @@ impl<Program: ProgramAttribs> VertexArray<Program> {
         let array = Self {
             vertices, vbo, vao, buffer_usage,
         };
-        array.update_vbo();
+        array.update_and_resize_vbo();
         array
     }
 }

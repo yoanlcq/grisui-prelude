@@ -11,6 +11,130 @@ use font::FontID;
 
 type ColorVertexArray = vertex_array::VertexArray<color_mesh::Program>;
 
+#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Hsva<T> {
+    pub h: T,
+    pub s: T,
+    pub v: T,
+    pub a: T,
+}
+
+impl From<Rgba<f32>> for Hsva<f32> {
+    fn from(rgba: Rgba<f32>) -> Self {
+        use ::v::partial_max as max;
+        use ::v::partial_min as min;
+
+        let Rgba { r, g, b, a } = rgba;
+        let cmax = max(max(r, g), b);
+        let cmin = min(min(r, g), b);
+        let delta = cmax - cmin;
+        let v = cmax;
+
+        let epsilon = 0.0001;
+        
+        if delta <= epsilon || cmax <= epsilon {
+            return Hsva { h: 0., s: 0., v, a };
+        }
+
+        let s = delta / cmax;
+
+        let mut h = if r >= cmax { 0. + (g-b) / delta }
+               else if g >= cmax { 2. + (b-r) / delta }
+               else              { 4. + (r-g) / delta };
+
+        if h < 0. {
+            h += 6.;
+        }
+        Hsva { h, s, v, a }
+    }
+}
+
+fn rgba_from_hsva(hsva: Hsva<f32>) -> Rgba<f32> {
+    let Hsva { h, s, v, a } = hsva;
+    let c = v * s; // chroma
+    let x = c * (1. - (h % 2. - 1.).abs());
+    let (mut r, mut g, mut b);
+    use ::v::Wrap;
+    match (h as i32).wrapped(6) {
+        0 => { r = c ; g = x ; b = 0.; },
+        1 => { r = x ; g = c ; b = 0.; },
+        2 => { r = 0.; g = c ; b = x ; },
+        3 => { r = 0.; g = x ; b = c ; },
+        4 => { r = x ; g = 0.; b = c ; },
+        5 => { r = c ; g = 0.; b = x ; },
+        _ => unreachable!{},
+    };
+    let m = v - c;
+    r += m; g += m; b += m;
+    Rgba { r, g, b, a }
+}
+
+#[derive(Debug)]
+pub struct ColorPicker {
+    satval_strip: ColorVertexArray,
+    hue_strip: ColorVertexArray,
+    alpha_strip: ColorVertexArray,
+    hsva: Hsva<f32>,
+}
+
+impl ColorPicker {
+    fn new(color_mesh_gl_program: &color_mesh::Program) -> Self {
+        let hsva = Hsva { h: 0., s: 1., v: 1., a: 1. };
+        let rgba = rgba_from_hsva(hsva);
+        let hue_strip_height = 0.125;
+        let alpha_strip_height = 0.125;
+        let alpha_strip = {
+            ColorVertexArray::from_vertices(
+                &color_mesh_gl_program, "ColorPicker Alpha Vertices", BufferUsage::DynamicDraw,
+                vec![
+                    Vertex { position: Vec3::new(0., alpha_strip_height * 0., 0.), color: Rgba::from_transparent(rgba), },
+                    Vertex { position: Vec3::new(1., alpha_strip_height * 0., 0.), color: Rgba::from_opaque(rgba), },
+                    Vertex { position: Vec3::new(0., alpha_strip_height * 1., 0.), color: Rgba::from_transparent(rgba), },
+                    Vertex { position: Vec3::new(1., alpha_strip_height * 1., 0.), color: Rgba::from_opaque(rgba), },
+                ]
+            )
+        };
+        let hue_strip = {
+            let steps = 32;
+            let mut vertices = Vec::with_capacity(steps * 2);
+            for hue in 0..steps {
+                let progress = hue as f32 / (steps-1) as f32;
+                let mut position = Vec3::unit_x() * progress;
+                position += Vec3::unit_y() * alpha_strip_height;
+                let color = rgba_from_hsva(Hsva { h: progress * 6., s: 1., v: 1., a: 1. });
+                vertices.push(Vertex { color, position: position + Vec3::unit_y() * hue_strip_height, });
+                vertices.push(Vertex { color, position, });
+            }
+            ColorVertexArray::from_vertices(&color_mesh_gl_program, "ColorPicker Hue Vertices", BufferUsage::StaticDraw, vertices)
+        };
+        let satval_strip = ColorVertexArray::from_vertices(
+            &color_mesh_gl_program, "ColorPicker SatVal Vertices", BufferUsage::DynamicDraw,
+            vec![
+                Vertex { position: Vec3::new(0., alpha_strip_height + hue_strip_height + 0., 0.), color: Rgba::black(), },
+                Vertex { position: Vec3::new(1., alpha_strip_height + hue_strip_height + 0., 0.), color: Rgba::black(), },
+                Vertex { position: Vec3::new(0., alpha_strip_height + hue_strip_height + 1., 0.), color: Rgba::white(), },
+                Vertex { position: Vec3::new(1., alpha_strip_height + hue_strip_height + 1., 0.), color: rgba, },
+            ]
+        );
+        Self {
+            hsva, hue_strip, satval_strip, alpha_strip,
+        }
+    }
+    fn update_gl(&mut self) {
+        let rgba = rgba_from_hsva(self.hsva);
+        self.satval_strip.vertices[3].color = rgba;
+        self.satval_strip.update_vbo_range(3..4);
+        let transparent = Rgba::from_transparent(rgba);
+        let opaque = Rgba::from_opaque(rgba);
+        self.alpha_strip.vertices[0].color = transparent;
+        self.alpha_strip.vertices[1].color = opaque;
+        self.alpha_strip.vertices[2].color = transparent;
+        self.alpha_strip.vertices[3].color = opaque;
+        self.alpha_strip.update_vbo_range(0..4);
+    }
+}
+
+
 pub struct EditorSystem {
     camera: OrthoCamera2D,
     grid_origin_vertices: ColorVertexArray,
@@ -31,6 +155,7 @@ pub struct EditorSystem {
     text_position: Vec2<i32>,
     text_color: Rgba<f32>,
     font_id: FontID,
+    color_picker: ColorPicker,
 }
 
 fn create_grid_vertices(color_mesh_gl_program: &color_mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> ColorVertexArray {
@@ -90,6 +215,7 @@ impl EditorSystem {
             &color_mesh_gl_program, "Draft Vertices", BufferUsage::DynamicDraw, vec![]
         );
         let text = Text::new(text_gl_program, "Editor Text");
+        let color_picker = ColorPicker::new(&color_mesh_gl_program);
         let camera = OrthoCamera2D::new(viewport_size, Self::CAMERA_NEAR, Self::CAMERA_FAR);
         Self {
             camera, cursor_vertices, grid_origin_vertices, grid_vertices_1, grid_vertices_01,
@@ -106,7 +232,8 @@ impl EditorSystem {
             text,
             text_position: (viewport_size.map(|x| x as i32) / 2).into(),
             text_color: Rgba::black(),
-            font_id: FontID::Normal,
+            font_id: FontID::Debug,
+            color_picker,
         }
     }
     fn on_enter_editor(&mut self, g: &Game) {
@@ -138,7 +265,7 @@ impl EditorSystem {
             let mut position = self.camera.viewport_to_world(pos, 0.);
             // position.z = 0.;
             self.draft_vertices.vertices.push(Vertex { position, color, });
-            self.draft_vertices.update_vbo();
+            self.draft_vertices.update_and_resize_vbo();
         }
     }
     fn end_polygon(&mut self, _g: &Game) {
@@ -152,7 +279,7 @@ impl EditorSystem {
     fn deleted_selected(&mut self, _g: &Game) {
         debug_assert!(self.is_active);
         self.draft_vertices.vertices.clear();
-        self.draft_vertices.update_vbo();
+        self.draft_vertices.update_and_resize_vbo();
         self.draft_vertices_ended = false;
     }
 }
@@ -285,6 +412,25 @@ impl System for EditorSystem {
                 }
             };
 
+            let draw_color_picker = || {
+                gl::Disable(gl::DEPTH_TEST);
+                gl::DepthMask(gl::FALSE);
+                let mvp = {
+                    let t = self.camera.viewport_to_ugly_ndc(Vec2::unit_y() * self.camera.viewport_size().h as i32 / 2);
+                    let s = Mat4::scaling_3d(Vec2::new(1. / self.camera.aspect_ratio(), 1.) / 2.);
+                    Mat4::<f32>::translation_3d(t) * s
+                };
+                g.color_mesh_gl_program.set_uniform_mvp(&mvp);
+                gl::BindVertexArray(self.color_picker.satval_strip.vao().gl_id());
+                gl::DrawArrays(gl::TRIANGLE_STRIP, 0, self.color_picker.satval_strip.vertices.len() as _);
+                gl::BindVertexArray(self.color_picker.hue_strip.vao().gl_id());
+                gl::DrawArrays(gl::TRIANGLE_STRIP, 0, self.color_picker.hue_strip.vertices.len() as _);
+                gl::BindVertexArray(self.color_picker.alpha_strip.vao().gl_id());
+                gl::DrawArrays(gl::TRIANGLE_STRIP, 0, self.color_picker.alpha_strip.vertices.len() as _);
+                gl::DepthMask(gl::TRUE);
+                gl::Enable(gl::DEPTH_TEST);
+            };
+
 
             {
                 let vp = self.camera.viewport_size();
@@ -300,10 +446,12 @@ impl System for EditorSystem {
                 draw_grid();
                 draw_cursor();
                 draw_draft_vertices();
+                draw_color_picker();
             } else {
                 draw_cursor();
                 draw_draft_vertices();
                 draw_grid();
+                draw_color_picker();
             }
 
 
@@ -312,10 +460,8 @@ impl System for EditorSystem {
             gl::Disable(gl::DEPTH_TEST);
             gl::UseProgram(g.text_gl_program.program().gl_id());
             let mvp = {
-                let vp_size = self.camera.viewport_size().map(|x| x as f32);
-                let Extent2 { w, h } = g.fonts.fonts[&self.font_id].texture_size.map(|x| x as f32) * 2. / vp_size;
-                let t = self.text_position.map(|x| x as f32) / vp_size;
-                let t = (Vec2::from(t) - 0.5) * 2.;
+                let Extent2 { w, h } = g.fonts.fonts[&self.font_id].texture_size.map(|x| x as f32) * 2. / self.camera.viewport_size().map(|x| x as f32);
+                let t = self.camera.viewport_to_pretty_ndc(self.text_position);
                 Mat4::<f32>::translation_3d(t) * Mat4::scaling_3d(Vec3::new(w, h, 1.))
             };
             g.text_gl_program.set_uniform_mvp(&mvp);

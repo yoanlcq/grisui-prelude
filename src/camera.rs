@@ -76,4 +76,17 @@ impl OrthoCamera2D {
         v.y = self.viewport_size.h as i32 - v.y;
         (v, z)
     }
+    pub fn viewport_to_ugly_ndc(&self, mut p: Vec2<i32>) -> Vec3<f32> {
+        let vp_size = self.viewport_size.map(|x| x as f32);
+        p.y = self.viewport_size.h as i32 - p.y;
+        let t = p.map(|x| x as f32) / vp_size;
+        let t = (t - 0.5) * 2.;
+        t.into()
+    }
+    pub fn viewport_to_pretty_ndc(&self, p: Vec2<i32>) -> Vec3<f32> {
+        let FrustumPlanes { left, right, top, bottom, .. } = self.frustum;
+        debug_assert_eq!(left, -right);
+        debug_assert_eq!(bottom, -top);
+        self.viewport_to_ugly_ndc(p) * Vec3::new(right, top, 0.)
+    }
 }

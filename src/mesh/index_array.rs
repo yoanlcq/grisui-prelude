@@ -30,12 +30,19 @@ impl<T: VertexIndex> IndexArray<T> {
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ibo.gl_id());
             // NOTE: Be careful not to actually index the Vec with range.
             // Will cause panics because we care about the capacity, not the length!
-            gl::BufferData(gl::ELEMENT_ARRAY_BUFFER, ((range.end - range.start) * mem::size_of::<T>()) as _, self.indices.as_ptr().add(range.start) as _, self.buffer_usage as _);
+            let offset = range.start * mem::size_of::<T>();
+            let size = (range.end - range.start) * mem::size_of::<T>();
+            let data = self.indices.as_ptr().add(range.start);
+            gl::BufferSubData(gl::ELEMENT_ARRAY_BUFFER, offset as _, size as _, data as _);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
         }
     }
-    pub fn update_ibo(&self) {
-        self.update_ibo_range(0..self.indices.capacity());
+    pub fn update_and_resize_ibo(&self) {
+        unsafe {
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ibo.gl_id());
+            gl::BufferData(gl::ELEMENT_ARRAY_BUFFER, (self.indices.capacity() * mem::size_of::<T>()) as _, self.indices.as_ptr() as _, self.buffer_usage as _);
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
+        }
     }
     pub fn from_indices(
         label: &str,
@@ -53,7 +60,7 @@ impl<T: VertexIndex> IndexArray<T> {
         let array = Self {
             buffer_usage, indices, ibo,
         };
-        array.update_ibo();
+        array.update_and_resize_ibo();
         array
     }
 }

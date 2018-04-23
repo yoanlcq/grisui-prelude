@@ -101,7 +101,7 @@ impl Text {
             i += 1;
         }
 
-        self.vertices.update_vbo();
-        self.indices.update_ibo();
+        self.vertices.update_and_resize_vbo();
+        self.indices.update_and_resize_ibo();
     }
 }
