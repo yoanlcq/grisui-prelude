@@ -28,6 +28,10 @@ fn setup_gl_state() {
         gl::Enable(gl::CULL_FACE);
         gl::CullFace(gl::BACK);
         gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+        // Enable POINT_SPRITE for proprietary NVIDIA Linux drivers, otherwise:
+        // - Points would be round by default (which is wrong; there are square);
+        // - Point sprites just wouldn't work.
+        gl::Enable(0x8861); // gl::POINT_SPRITE
         gl::ClearColor(1., 0., 1., 1.);
     }
 }
