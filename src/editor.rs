@@ -80,7 +80,7 @@ pub struct HsvaSliders {
 
 impl HsvaSliders {
     fn new(color_mesh_gl_program: &color_mesh::Program) -> Self {
-        let hsva = Hsva { h: 0., s: 1., v: 1., a: 1. };
+        let hsva = Hsva { h: 3., s: 1., v: 1., a: 1. };
         let rgba = rgba_from_hsva(hsva);
         let strip_heights = Hsva { h: 0.25, s: 0.25, v: 0.25, a: 0.25 };
         let strip_y = Hsva {
@@ -146,7 +146,7 @@ impl HsvaSliders {
                 ]
             )
         };
-        Self {
+        let mut slf = Self {
             hsva, strip_heights, strip_y,
             strips: Hsva {
                 h: hue_strip,
@@ -154,22 +154,36 @@ impl HsvaSliders {
                 v: val_strip,
                 a: alpha_strip,
             },
-        }
+        };
+        slf.update_gl();
+        slf
     }
-    /*
     fn update_gl(&mut self) {
+        let hsva = self.hsva;
+        let lo_sat = rgba_from_hsva(Hsva { a: 1., s: 0., .. hsva });
+        let hi_sat = rgba_from_hsva(Hsva { a: 1., s: 1., .. hsva });
+        let lo_val = rgba_from_hsva(Hsva { a: 1., v: 0., .. hsva });
+        let hi_val = rgba_from_hsva(Hsva { a: 1., v: 1., .. hsva });
         let rgba = rgba_from_hsva(self.hsva);
-        self.satval_strip.vertices[2].color = rgba;
-        self.satval_strip.update_vbo_range(2..3);
-        let transparent = Rgba::from_transparent(rgba);
-        let opaque = Rgba::from_opaque(rgba);
-        self.alpha_strip.vertices[0].color = transparent;
-        self.alpha_strip.vertices[1].color = opaque;
-        self.alpha_strip.vertices[2].color = transparent;
-        self.alpha_strip.vertices[3].color = opaque;
-        self.alpha_strip.update_vbo_range(0..4);
+        let lo_alpha = Rgba { a: 0., .. rgba };
+        let hi_alpha = Rgba { a: 1., .. rgba };
+
+        self.strips.s.vertices[0].color = lo_sat;
+        self.strips.s.vertices[1].color = hi_sat;
+        self.strips.s.vertices[2].color = lo_sat;
+        self.strips.s.vertices[3].color = hi_sat;
+        self.strips.v.vertices[0].color = lo_val;
+        self.strips.v.vertices[1].color = hi_val;
+        self.strips.v.vertices[2].color = lo_val;
+        self.strips.v.vertices[3].color = hi_val;
+        self.strips.a.vertices[0].color = lo_alpha;
+        self.strips.a.vertices[1].color = hi_alpha;
+        self.strips.a.vertices[2].color = lo_alpha;
+        self.strips.a.vertices[3].color = hi_alpha;
+        self.strips.s.update_vbo_range(0..4);
+        self.strips.v.update_vbo_range(0..4);
+        self.strips.a.update_vbo_range(0..4);
     }
-    */
 }
 
 
@@ -458,7 +472,7 @@ impl System for EditorSystem {
                 gl::Disable(gl::DEPTH_TEST);
                 gl::DepthMask(gl::FALSE);
                 let mvp = {
-                    let t = self.camera.viewport_to_ugly_ndc(Vec2::unit_y() * self.camera.viewport_size().h as i32 / 2);
+                    let t = self.camera.viewport_to_ugly_ndc(Vec2::unit_y() * self.camera.viewport_size().h as i32);
                     let s = Mat4::scaling_3d(Vec2::new(1. / self.camera.aspect_ratio(), 1.) / 1.5);
                     Mat4::<f32>::translation_3d(t) * s
                 };
