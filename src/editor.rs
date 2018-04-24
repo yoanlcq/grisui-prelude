@@ -110,10 +110,10 @@ impl ColorPicker {
         let satval_strip = ColorVertexArray::from_vertices(
             &color_mesh_gl_program, "ColorPicker SatVal Vertices", BufferUsage::DynamicDraw,
             vec![
-                Vertex { position: Vec3::new(0., alpha_strip_height + hue_strip_height + 0., 0.), color: Rgba::black(), },
-                Vertex { position: Vec3::new(1., alpha_strip_height + hue_strip_height + 0., 0.), color: Rgba::black(), },
                 Vertex { position: Vec3::new(0., alpha_strip_height + hue_strip_height + 1., 0.), color: Rgba::white(), },
+                Vertex { position: Vec3::new(0., alpha_strip_height + hue_strip_height + 0., 0.), color: Rgba::black(), },
                 Vertex { position: Vec3::new(1., alpha_strip_height + hue_strip_height + 1., 0.), color: rgba, },
+                Vertex { position: Vec3::new(1., alpha_strip_height + hue_strip_height + 0., 0.), color: Rgba::black(), },
             ]
         );
         Self {
@@ -122,8 +122,8 @@ impl ColorPicker {
     }
     fn update_gl(&mut self) {
         let rgba = rgba_from_hsva(self.hsva);
-        self.satval_strip.vertices[3].color = rgba;
-        self.satval_strip.update_vbo_range(3..4);
+        self.satval_strip.vertices[2].color = rgba;
+        self.satval_strip.update_vbo_range(2..3);
         let transparent = Rgba::from_transparent(rgba);
         let opaque = Rgba::from_opaque(rgba);
         self.alpha_strip.vertices[0].color = transparent;
@@ -236,11 +236,15 @@ impl EditorSystem {
             color_picker,
         }
     }
+    pub const CLEAR_COLOR: Rgba<f32> = Rgba {
+        r: 0.1, g: 0.2, b: 1., a: 1.,
+    };
     fn on_enter_editor(&mut self, g: &Game) {
         debug_assert!(!self.is_active);
         self.is_active = true;
         unsafe {
-            gl::ClearColor(0.1, 0.2, 1., 1.);
+            let Rgba { r, g, b, a } = Self::CLEAR_COLOR;
+            gl::ClearColor(r, g, b, a);
         }
         g.platform.cursors.crosshair.set();
         self.text.string = "If the universe is infinite,\nthere is an infinite number of worlds\nwhere this story takes place.".to_owned();
@@ -413,11 +417,24 @@ impl System for EditorSystem {
             };
 
             let draw_color_picker = || {
+
+                {
+                    let vp = self.camera.viewport_size().map(|x| x as f32);
+
+                    gl::Viewport(0, 0, (vp.w / (2. * 1.5)) as _, vp.h as _);
+                    gl::ClearColor(0.5, 0.5, 0.5, 1.);
+                    gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+
+                    let Rgba { r, g, b, a } = Self::CLEAR_COLOR;
+                    gl::ClearColor(r, g, b, a);
+                    gl::Viewport(0, 0, vp.w as _, vp.h as _);
+                }
+
                 gl::Disable(gl::DEPTH_TEST);
                 gl::DepthMask(gl::FALSE);
                 let mvp = {
                     let t = self.camera.viewport_to_ugly_ndc(Vec2::unit_y() * self.camera.viewport_size().h as i32 / 2);
-                    let s = Mat4::scaling_3d(Vec2::new(1. / self.camera.aspect_ratio(), 1.) / 2.);
+                    let s = Mat4::scaling_3d(Vec2::new(1. / self.camera.aspect_ratio(), 1.) / 1.5);
                     Mat4::<f32>::translation_3d(t) * s
                 };
                 g.color_mesh_gl_program.set_uniform_mvp(&mvp);
