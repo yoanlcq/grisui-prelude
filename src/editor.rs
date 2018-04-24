@@ -69,57 +69,94 @@ fn rgba_from_hsva(hsva: Hsva<f32>) -> Rgba<f32> {
     Rgba { r, g, b, a }
 }
 
+
 #[derive(Debug)]
-pub struct ColorPicker {
-    satval_strip: ColorVertexArray,
-    hue_strip: ColorVertexArray,
-    alpha_strip: ColorVertexArray,
+pub struct HsvaSliders {
     hsva: Hsva<f32>,
+    strips: Hsva<ColorVertexArray>,
+    strip_heights: Hsva<f32>,
+    strip_y: Hsva<f32>,
 }
 
-impl ColorPicker {
+impl HsvaSliders {
     fn new(color_mesh_gl_program: &color_mesh::Program) -> Self {
         let hsva = Hsva { h: 0., s: 1., v: 1., a: 1. };
         let rgba = rgba_from_hsva(hsva);
-        let hue_strip_height = 0.125;
-        let alpha_strip_height = 0.125;
-        let alpha_strip = {
-            ColorVertexArray::from_vertices(
-                &color_mesh_gl_program, "ColorPicker Alpha Vertices", BufferUsage::DynamicDraw,
-                vec![
-                    Vertex { position: Vec3::new(0., alpha_strip_height * 0., 0.), color: Rgba::from_transparent(rgba), },
-                    Vertex { position: Vec3::new(1., alpha_strip_height * 0., 0.), color: Rgba::from_opaque(rgba), },
-                    Vertex { position: Vec3::new(0., alpha_strip_height * 1., 0.), color: Rgba::from_transparent(rgba), },
-                    Vertex { position: Vec3::new(1., alpha_strip_height * 1., 0.), color: Rgba::from_opaque(rgba), },
-                ]
-            )
+        let strip_heights = Hsva { h: 0.25, s: 0.25, v: 0.25, a: 0.25 };
+        let strip_y = Hsva {
+            h: strip_heights.a + strip_heights.v + strip_heights.s,
+            s: strip_heights.a + strip_heights.v,
+            v: strip_heights.a,
+            a: 0.,
         };
         let hue_strip = {
             let steps = 32;
             let mut vertices = Vec::with_capacity(steps * 2);
             for hue in 0..steps {
                 let progress = hue as f32 / (steps-1) as f32;
-                let mut position = Vec3::unit_x() * progress;
-                position += Vec3::unit_y() * alpha_strip_height;
+                let position = Vec3::new(progress, strip_y.h, 0.);
                 let color = rgba_from_hsva(Hsva { h: progress * 6., s: 1., v: 1., a: 1. });
-                vertices.push(Vertex { color, position: position + Vec3::unit_y() * hue_strip_height, });
+                vertices.push(Vertex { color, position: position + Vec3::unit_y() * strip_heights.h, });
                 vertices.push(Vertex { color, position, });
             }
-            ColorVertexArray::from_vertices(&color_mesh_gl_program, "ColorPicker Hue Vertices", BufferUsage::StaticDraw, vertices)
+            ColorVertexArray::from_vertices(&color_mesh_gl_program, "HsvaSliders Hue Slider", BufferUsage::StaticDraw, vertices)
         };
-        let satval_strip = ColorVertexArray::from_vertices(
-            &color_mesh_gl_program, "ColorPicker SatVal Vertices", BufferUsage::DynamicDraw,
-            vec![
-                Vertex { position: Vec3::new(0., alpha_strip_height + hue_strip_height + 1., 0.), color: Rgba::white(), },
-                Vertex { position: Vec3::new(0., alpha_strip_height + hue_strip_height + 0., 0.), color: Rgba::black(), },
-                Vertex { position: Vec3::new(1., alpha_strip_height + hue_strip_height + 1., 0.), color: rgba, },
-                Vertex { position: Vec3::new(1., alpha_strip_height + hue_strip_height + 0., 0.), color: Rgba::black(), },
-            ]
-        );
+        let sat_strip = {
+            let mut saturated = hsva;
+            let mut not_saturated = hsva;
+            saturated.s = 1.;
+            not_saturated.s = 0.;
+            let saturated = rgba_from_hsva(saturated);
+            let not_saturated = rgba_from_hsva(not_saturated);
+            ColorVertexArray::from_vertices(
+                &color_mesh_gl_program, "HsvaSliders Saturation Slider", BufferUsage::DynamicDraw,
+                vec![
+                    Vertex { position: Vec3::new(0., strip_y.s + strip_heights.s * 0., 0.), color: not_saturated, },
+                    Vertex { position: Vec3::new(1., strip_y.s + strip_heights.s * 0., 0.), color: saturated, },
+                    Vertex { position: Vec3::new(0., strip_y.s + strip_heights.s * 1., 0.), color: not_saturated, },
+                    Vertex { position: Vec3::new(1., strip_y.s + strip_heights.s * 1., 0.), color: saturated, },
+                ]
+            )
+        };
+        let val_strip = {
+            let mut hi_value = hsva;
+            let mut lo_value = hsva;
+            hi_value.v = 1.;
+            lo_value.v = 0.;
+            let hi_value = rgba_from_hsva(hi_value);
+            let lo_value = rgba_from_hsva(lo_value);
+            ColorVertexArray::from_vertices(
+                &color_mesh_gl_program, "HsvaSliders Value Slider", BufferUsage::DynamicDraw,
+                vec![
+                    Vertex { position: Vec3::new(0., strip_y.v + strip_heights.v * 0., 0.), color: lo_value, },
+                    Vertex { position: Vec3::new(1., strip_y.v + strip_heights.v * 0., 0.), color: hi_value, },
+                    Vertex { position: Vec3::new(0., strip_y.v + strip_heights.v * 1., 0.), color: lo_value, },
+                    Vertex { position: Vec3::new(1., strip_y.v + strip_heights.v * 1., 0.), color: hi_value, },
+                ]
+            )
+        };
+        let alpha_strip = {
+            ColorVertexArray::from_vertices(
+                &color_mesh_gl_program, "HsvaSliders Alpha Slider", BufferUsage::DynamicDraw,
+                vec![
+                    Vertex { position: Vec3::new(0., strip_y.a + strip_heights.a * 0., 0.), color: Rgba::from_transparent(rgba), },
+                    Vertex { position: Vec3::new(1., strip_y.a + strip_heights.a * 0., 0.), color: Rgba::from_opaque(rgba), },
+                    Vertex { position: Vec3::new(0., strip_y.a + strip_heights.a * 1., 0.), color: Rgba::from_transparent(rgba), },
+                    Vertex { position: Vec3::new(1., strip_y.a + strip_heights.a * 1., 0.), color: Rgba::from_opaque(rgba), },
+                ]
+            )
+        };
         Self {
-            hsva, hue_strip, satval_strip, alpha_strip,
+            hsva, strip_heights, strip_y,
+            strips: Hsva {
+                h: hue_strip,
+                s: sat_strip,
+                v: val_strip,
+                a: alpha_strip,
+            },
         }
     }
+    /*
     fn update_gl(&mut self) {
         let rgba = rgba_from_hsva(self.hsva);
         self.satval_strip.vertices[2].color = rgba;
@@ -132,6 +169,7 @@ impl ColorPicker {
         self.alpha_strip.vertices[3].color = opaque;
         self.alpha_strip.update_vbo_range(0..4);
     }
+    */
 }
 
 
@@ -155,7 +193,7 @@ pub struct EditorSystem {
     text_position: Vec2<i32>,
     text_color: Rgba<f32>,
     font_id: FontID,
-    color_picker: ColorPicker,
+    hsva_sliders: HsvaSliders,
 }
 
 fn create_grid_vertices(color_mesh_gl_program: &color_mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> ColorVertexArray {
@@ -215,7 +253,7 @@ impl EditorSystem {
             &color_mesh_gl_program, "Draft Vertices", BufferUsage::DynamicDraw, vec![]
         );
         let text = Text::new(text_gl_program, "Editor Text");
-        let color_picker = ColorPicker::new(&color_mesh_gl_program);
+        let hsva_sliders = HsvaSliders::new(&color_mesh_gl_program);
         let camera = OrthoCamera2D::new(viewport_size, Self::CAMERA_NEAR, Self::CAMERA_FAR);
         Self {
             camera, cursor_vertices, grid_origin_vertices, grid_vertices_1, grid_vertices_01,
@@ -233,7 +271,7 @@ impl EditorSystem {
             text_position: (viewport_size.map(|x| x as i32) / 2).into(),
             text_color: Rgba::black(),
             font_id: FontID::Debug,
-            color_picker,
+            hsva_sliders,
         }
     }
     pub const CLEAR_COLOR: Rgba<f32> = Rgba {
@@ -416,20 +454,7 @@ impl System for EditorSystem {
                 }
             };
 
-            let draw_color_picker = || {
-
-                {
-                    let vp = self.camera.viewport_size().map(|x| x as f32);
-
-                    gl::Viewport(0, 0, (vp.w / (2. * 1.5)) as _, vp.h as _);
-                    gl::ClearColor(0.5, 0.5, 0.5, 1.);
-                    gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
-
-                    let Rgba { r, g, b, a } = Self::CLEAR_COLOR;
-                    gl::ClearColor(r, g, b, a);
-                    gl::Viewport(0, 0, vp.w as _, vp.h as _);
-                }
-
+            let draw_hsva_sliders = || {
                 gl::Disable(gl::DEPTH_TEST);
                 gl::DepthMask(gl::FALSE);
                 let mvp = {
@@ -438,12 +463,16 @@ impl System for EditorSystem {
                     Mat4::<f32>::translation_3d(t) * s
                 };
                 g.color_mesh_gl_program.set_uniform_mvp(&mvp);
-                gl::BindVertexArray(self.color_picker.satval_strip.vao().gl_id());
-                gl::DrawArrays(gl::TRIANGLE_STRIP, 0, self.color_picker.satval_strip.vertices.len() as _);
-                gl::BindVertexArray(self.color_picker.hue_strip.vao().gl_id());
-                gl::DrawArrays(gl::TRIANGLE_STRIP, 0, self.color_picker.hue_strip.vertices.len() as _);
-                gl::BindVertexArray(self.color_picker.alpha_strip.vao().gl_id());
-                gl::DrawArrays(gl::TRIANGLE_STRIP, 0, self.color_picker.alpha_strip.vertices.len() as _);
+                let strips = &[
+                    &self.hsva_sliders.strips.h,
+                    &self.hsva_sliders.strips.s,
+                    &self.hsva_sliders.strips.v,
+                    &self.hsva_sliders.strips.a,
+                ];
+                for strip in strips {
+                    gl::BindVertexArray(strip.vao().gl_id());
+                    gl::DrawArrays(gl::TRIANGLE_STRIP, 0, strip.vertices.len() as _);
+                }
                 gl::DepthMask(gl::TRUE);
                 gl::Enable(gl::DEPTH_TEST);
             };
@@ -463,12 +492,12 @@ impl System for EditorSystem {
                 draw_grid();
                 draw_cursor();
                 draw_draft_vertices();
-                draw_color_picker();
+                draw_hsva_sliders();
             } else {
                 draw_cursor();
                 draw_draft_vertices();
                 draw_grid();
-                draw_color_picker();
+                draw_hsva_sliders();
             }
 
 
