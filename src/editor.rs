@@ -73,6 +73,7 @@ fn rgba_from_hsva(hsva: Hsva<f32>) -> Rgba<f32> {
 #[derive(Debug)]
 pub struct HsvaSliders {
     hsva: Hsva<f32>,
+    cursor_lines: ColorVertexArray,
     strips: Hsva<ColorVertexArray>,
     strip_heights: Hsva<f32>,
     strip_y: Hsva<f32>,
@@ -146,8 +147,26 @@ impl HsvaSliders {
                 ]
             )
         };
+        let cursor_lines = {
+            let Hsva { h, s, v, a } = hsva;
+            let h = h / 6.;
+            ColorVertexArray::from_vertices(
+                &color_mesh_gl_program, "HsvaSliders Cursor Lines", BufferUsage::DynamicDraw,
+                vec![
+                    Vertex { position: Vec3::new(h, strip_y.h + strip_heights.h * 0., 0.), color: Rgba::black(), },
+                    Vertex { position: Vec3::new(h, strip_y.h + strip_heights.h * 1., 0.), color: Rgba::black(), },
+                    Vertex { position: Vec3::new(s, strip_y.s + strip_heights.s * 0., 0.), color: Rgba::black(), },
+                    Vertex { position: Vec3::new(s, strip_y.s + strip_heights.s * 1., 0.), color: Rgba::black(), },
+                    Vertex { position: Vec3::new(v, strip_y.v + strip_heights.v * 0., 0.), color: Rgba::black(), },
+                    Vertex { position: Vec3::new(v, strip_y.v + strip_heights.v * 1., 0.), color: Rgba::black(), },
+                    Vertex { position: Vec3::new(a, strip_y.a + strip_heights.a * 0., 0.), color: Rgba::black(), },
+                    Vertex { position: Vec3::new(a, strip_y.a + strip_heights.a * 1., 0.), color: Rgba::black(), },
+                ]
+            )
+        };
         let mut slf = Self {
             hsva, strip_heights, strip_y,
+            cursor_lines,
             strips: Hsva {
                 h: hue_strip,
                 s: sat_strip,
@@ -487,6 +506,9 @@ impl System for EditorSystem {
                     gl::BindVertexArray(strip.vao().gl_id());
                     gl::DrawArrays(gl::TRIANGLE_STRIP, 0, strip.vertices.len() as _);
                 }
+                gl::LineWidth(2.);
+                gl::BindVertexArray(self.hsva_sliders.cursor_lines.vao().gl_id());
+                gl::DrawArrays(gl::LINES, 0, self.hsva_sliders.cursor_lines.vertices.len() as _);
                 gl::DepthMask(gl::TRUE);
                 gl::Enable(gl::DEPTH_TEST);
             };
