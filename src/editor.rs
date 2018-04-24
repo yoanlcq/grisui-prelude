@@ -174,10 +174,10 @@ impl HsvaSliders {
                 a: alpha_strip,
             },
         };
-        slf.update_gl();
+        slf.update_colors_gl();
         slf
     }
-    fn update_gl(&mut self) {
+    fn update_colors_gl(&mut self) {
         let hsva = self.hsva;
         let lo_sat = rgba_from_hsva(Hsva { a: 1., s: 0., .. hsva });
         let hi_sat = rgba_from_hsva(Hsva { a: 1., s: 1., .. hsva });
@@ -203,6 +203,17 @@ impl HsvaSliders {
         self.strips.v.update_vbo_range(0..4);
         self.strips.a.update_vbo_range(0..4);
     }
+    fn update_cursor_lines_gl(&mut self) {
+        self.cursor_lines.vertices[0].position.x = self.hsva.h / 6.;
+        self.cursor_lines.vertices[1].position.x = self.hsva.h / 6.;
+        self.cursor_lines.vertices[2].position.x = self.hsva.s;
+        self.cursor_lines.vertices[3].position.x = self.hsva.s;
+        self.cursor_lines.vertices[4].position.x = self.hsva.v;
+        self.cursor_lines.vertices[5].position.x = self.hsva.v;
+        self.cursor_lines.vertices[6].position.x = self.hsva.a;
+        self.cursor_lines.vertices[7].position.x = self.hsva.a;
+        self.cursor_lines.update_vbo_range(0..8);
+    }
 }
 
 
@@ -227,6 +238,9 @@ pub struct EditorSystem {
     text_color: Rgba<f32>,
     font_id: FontID,
     hsva_sliders: HsvaSliders,
+    hsva_sliding_speed: Hsva<f32>,
+    is_entering_command: bool,
+    command_text: Text,
 }
 
 fn create_grid_vertices(color_mesh_gl_program: &color_mesh::Program, size: Extent2<usize>, color: Rgba<f32>, scale: Extent2<f32>) -> ColorVertexArray {
@@ -275,7 +289,7 @@ impl EditorSystem {
             vec![Vertex { position: Vec3::zero(), color: Rgba::red(), }]
         );
         let cursor_vertices = ColorVertexArray::from_vertices(
-            &color_mesh_gl_program, "Cursor Vertices", BufferUsage::StaticDraw,
+            &color_mesh_gl_program, "Cursor Vertices", BufferUsage::DynamicDraw,
             vec![
                 Vertex { position: Vec3::zero(), color: Rgba::red(), },
                 Vertex { position: Vec3::unit_x(), color: Rgba::green(), },
@@ -305,6 +319,9 @@ impl EditorSystem {
             text_color: Rgba::black(),
             font_id: FontID::Debug,
             hsva_sliders,
+            hsva_sliding_speed: Hsva { h: 0., s: 0., v: 0., a: 0. },
+            is_entering_command: false,
+            command_text: Text::new(text_gl_program, "Editor Command Text"),
         }
     }
     pub const CLEAR_COLOR: Rgba<f32> = Rgba {
@@ -387,6 +404,12 @@ impl System for EditorSystem {
         }
         self.camera.xform.scale *= Self::CAMERA_ZOOM_STEP_FACTOR.powf(delta.y as _);
     }
+    fn on_text_input(&mut self, g: &Game, s: &str) {
+        if self.is_entering_command {
+            self.command_text.string += s;
+            self.command_text.update_gl(&g.fonts.fonts[&FontID::Debug]);
+        }
+    }
     fn on_message(&mut self, g: &Game, msg: &Message) {
         match *msg {
             Message::EnterEditor => { self.on_enter_editor(g); return; },
@@ -398,9 +421,25 @@ impl System for EditorSystem {
             return;
         }
 
+        if self.is_entering_command {
+            match *msg {
+                Message::EditorCancelCommand => {
+                    self.is_entering_command = false;
+                },
+                Message::EditorConfirmCommand => {
+                    self.is_entering_command = false;
+                },
+                _ => {},
+            };
+            return;
+        }
+
         let normal_camera_rotation_speed = Self::CAMERA_Z_ROTATION_SPEED_DEGREES.to_radians();
 
         match *msg {
+            Message::EditorBeginEnterCommand => {
+                self.is_entering_command = true;
+            },
             Message::EditorToggleDrawGridFirst => self.draw_grid_first = !self.draw_grid_first,
             Message::EditorToggleGrid => self.do_draw_grid = !self.do_draw_grid,
             Message::EditorBeginPanCameraViaMouse => self.is_panning_camera = true,
@@ -419,16 +458,40 @@ impl System for EditorSystem {
             Message::EditorEndPolygon => self.end_polygon(g),
             Message::EditorToggleSelectAll => self.toggle_select_all(g),
             Message::EditorDeleteSelected => self.deleted_selected(g),
+            Message::EditorBeginSlideHue { speed } => self.hsva_sliding_speed.h = speed * 6.,
+            Message::EditorBeginSlideSaturation { speed } => self.hsva_sliding_speed.s = speed,
+            Message::EditorBeginSlideValue { speed } => self.hsva_sliding_speed.v = speed,
+            Message::EditorBeginSlideAlpha { speed } => self.hsva_sliding_speed.a = speed,
+            Message::EditorEndSlideHue => self.hsva_sliding_speed.h = 0.,
+            Message::EditorEndSlideSaturation => self.hsva_sliding_speed.s = 0.,
+            Message::EditorEndSlideValue => self.hsva_sliding_speed.v = 0.,
+            Message::EditorEndSlideAlpha => self.hsva_sliding_speed.a = 0.,
             _ => (),
         };
     }
-    fn tick(&mut self, _: &Game, _: Duration, dt: Duration) {
+    fn tick(&mut self, g: &Game, _: Duration, dt: Duration) {
         if !self.is_active {
             return;
         }
         let dt = dt.to_f64_seconds() as f32;
         self.prev_camera_rotation_z_radians = self.next_camera_rotation_z_radians;
         self.next_camera_rotation_z_radians += dt * self.camera_rotation_speed;
+        self.hsva_sliders.hsva.h += dt * self.hsva_sliding_speed.h;
+        self.hsva_sliders.hsva.s += dt * self.hsva_sliding_speed.s;
+        self.hsva_sliders.hsva.v += dt * self.hsva_sliding_speed.v;
+        self.hsva_sliders.hsva.a += dt * self.hsva_sliding_speed.a;
+        use ::v::{Clamp, Wrap};
+        self.hsva_sliders.hsva.h = self.hsva_sliders.hsva.h.wrapped(6.);
+        self.hsva_sliders.hsva.s = self.hsva_sliders.hsva.s.clamped01();
+        self.hsva_sliders.hsva.v = self.hsva_sliders.hsva.v.clamped01();
+        self.hsva_sliders.hsva.a = self.hsva_sliders.hsva.a.clamped01();
+        self.hsva_sliders.update_colors_gl();
+        self.hsva_sliders.update_cursor_lines_gl();
+
+        self.text.string = format!("{:?}", self.hsva_sliders.hsva);
+        self.text.update_gl(&g.fonts.fonts[&self.font_id]);
+        self.cursor_vertices.vertices[0].color = rgba_from_hsva(self.hsva_sliders.hsva);
+        self.cursor_vertices.update_vbo_range(0..1);
     }
     fn draw(&mut self, g: &Game, gfx_interp: f64) {
         if !self.is_active {
@@ -519,42 +582,68 @@ impl System for EditorSystem {
                 gl::Viewport(0, 0, vp.w as _, vp.h as _);
             }
 
+            if self.is_entering_command {
 
-            // Render the rest
+                let grey = 0.1;
+                gl::ClearColor(grey, grey, grey, 1.);
+                gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-            gl::UseProgram(g.color_mesh_gl_program.program().gl_id());
+                gl::UseProgram(g.text_gl_program.program().gl_id());
+                let command_text_position = Vec2::new(0, g.fonts.fonts[&FontID::Debug].height as i32);
+                let mvp = {
+                    let Extent2 { w, h } = g.fonts.fonts[&FontID::Debug].texture_size.map(|x| x as f32) * 2. / self.camera.viewport_size().map(|x| x as f32);
+                    let t = self.camera.viewport_to_ugly_ndc(command_text_position);
+                    Mat4::<f32>::translation_3d(t) * Mat4::scaling_3d(Vec3::new(w, h, 1.))
+                };
+                g.text_gl_program.set_uniform_mvp(&mvp);
+                g.text_gl_program.set_uniform_font_atlas_via_font_id(FontID::Debug);
+                g.text_gl_program.set_uniform_color(Rgba::white());
+                gl::BindVertexArray(self.command_text.vertices.vao().gl_id());
+                gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.command_text.indices.ibo().gl_id());
+                gl::DrawElements(gl::TRIANGLES, self.command_text.indices.indices.len() as _, gl::UNSIGNED_SHORT, ptr::null_mut());
+                gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
+                gl::BindVertexArray(0);
 
-            if self.draw_grid_first {
-                draw_grid();
-                draw_cursor();
-                draw_draft_vertices();
-                draw_hsva_sliders();
+                gl::UseProgram(0);
+                let Rgba { r, g, b, a } = Self::CLEAR_COLOR;
+                gl::ClearColor(r, g, b, a);
+
             } else {
-                draw_cursor();
-                draw_draft_vertices();
-                draw_grid();
-                draw_hsva_sliders();
+
+                gl::UseProgram(g.color_mesh_gl_program.program().gl_id());
+
+                if self.draw_grid_first {
+                    draw_grid();
+                    draw_cursor();
+                    draw_draft_vertices();
+                    draw_hsva_sliders();
+                } else {
+                    draw_cursor();
+                    draw_draft_vertices();
+                    draw_grid();
+                    draw_hsva_sliders();
+                }
+
+
+                // Render text (last, so it always appears on top of grid)
+
+                gl::Disable(gl::DEPTH_TEST);
+                gl::UseProgram(g.text_gl_program.program().gl_id());
+                let mvp = {
+                    let Extent2 { w, h } = g.fonts.fonts[&self.font_id].texture_size.map(|x| x as f32) * 2. / self.camera.viewport_size().map(|x| x as f32);
+                    let t = self.camera.viewport_to_ugly_ndc(self.text_position);
+                    Mat4::<f32>::translation_3d(t) * Mat4::scaling_3d(Vec3::new(w, h, 1.))
+                };
+                g.text_gl_program.set_uniform_mvp(&mvp);
+                g.text_gl_program.set_uniform_font_atlas_via_font_id(self.font_id);
+                g.text_gl_program.set_uniform_color(self.text_color);
+                gl::BindVertexArray(self.text.vertices.vao().gl_id());
+                gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.text.indices.ibo().gl_id());
+                gl::DrawElements(gl::TRIANGLES, self.text.indices.indices.len() as _, gl::UNSIGNED_SHORT, ptr::null_mut());
+                gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
+                gl::BindVertexArray(0);
+                gl::Enable(gl::DEPTH_TEST);
             }
-
-
-            // Render text (last, so it always appears on top of grid)
-
-            gl::Disable(gl::DEPTH_TEST);
-            gl::UseProgram(g.text_gl_program.program().gl_id());
-            let mvp = {
-                let Extent2 { w, h } = g.fonts.fonts[&self.font_id].texture_size.map(|x| x as f32) * 2. / self.camera.viewport_size().map(|x| x as f32);
-                let t = self.camera.viewport_to_pretty_ndc(self.text_position);
-                Mat4::<f32>::translation_3d(t) * Mat4::scaling_3d(Vec3::new(w, h, 1.))
-            };
-            g.text_gl_program.set_uniform_mvp(&mvp);
-            g.text_gl_program.set_uniform_font_atlas_via_font_id(self.font_id);
-            g.text_gl_program.set_uniform_color(self.text_color);
-            gl::BindVertexArray(self.text.vertices.vao().gl_id());
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.text.indices.ibo().gl_id());
-            gl::DrawElements(gl::TRIANGLES, self.text.indices.indices.len() as _, gl::UNSIGNED_SHORT, ptr::null_mut());
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
-            gl::BindVertexArray(0);
-            gl::Enable(gl::DEPTH_TEST);
 
 
             gl::BindVertexArray(0);

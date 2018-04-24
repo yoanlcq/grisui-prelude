@@ -17,6 +17,20 @@ pub enum Message {
     EditorToggleSelectAll,
     EditorDeleteSelected,
 
+    EditorBeginSlideHue { speed: f32 },
+    EditorEndSlideHue,
+    EditorBeginSlideSaturation { speed: f32 },
+    EditorEndSlideSaturation,
+    EditorBeginSlideValue { speed: f32 },
+    EditorEndSlideValue,
+    EditorBeginSlideAlpha { speed: f32 },
+    EditorEndSlideAlpha,
+
+    EditorBeginEnterCommand,
+    EditorCancelCommand,
+    EditorConfirmCommand,
+
+
     EnterGameplay,
     LeaveGameplay,
 }

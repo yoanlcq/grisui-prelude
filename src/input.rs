@@ -109,12 +109,59 @@ impl System for InputSystem {
             },
             Keycode::Return => if key.is_down() {
                 send(Message::EditorEndPolygon);
+                send(Message::EditorConfirmCommand);
             },
             Keycode::A => if key.is_down() {
                 send(Message::EditorToggleSelectAll);
             },
             Keycode::Backspace | Keycode::Delete | Keycode::X => if key.is_down() {
                 send(Message::EditorDeleteSelected);
+            },
+            Keycode::J => if key.is_down() {
+                send(Message::EditorBeginSlideValue { speed: 1. });
+            } else {
+                send(Message::EditorEndSlideValue);
+            },
+            Keycode::K => if key.is_down() {
+                send(Message::EditorBeginSlideValue { speed: -1. });
+            } else {
+                send(Message::EditorEndSlideValue);
+            },
+            Keycode::L => if key.is_down() {
+                send(Message::EditorBeginSlideSaturation { speed: -1. });
+            } else {
+                send(Message::EditorEndSlideSaturation);
+            },
+            Keycode::M => if key.is_down() {
+                send(Message::EditorBeginSlideSaturation { speed: 1. });
+            } else {
+                send(Message::EditorEndSlideSaturation);
+            },
+            Keycode::U => if key.is_down() {
+                send(Message::EditorBeginSlideHue { speed: -1. });
+            } else {
+                send(Message::EditorEndSlideHue);
+            },
+            Keycode::I => if key.is_down() {
+                send(Message::EditorBeginSlideHue { speed: 1. });
+            } else {
+                send(Message::EditorEndSlideHue);
+            },
+            Keycode::O => if key.is_down() {
+                send(Message::EditorBeginSlideAlpha { speed: 1. });
+            } else {
+                send(Message::EditorEndSlideAlpha);
+            },
+            Keycode::P => if key.is_down() {
+                send(Message::EditorBeginSlideAlpha { speed: -1. });
+            } else {
+                send(Message::EditorEndSlideAlpha);
+            },
+            Keycode::Colon => if key.is_down() {
+                send(Message::EditorBeginEnterCommand);
+            },
+            Keycode::Escape => if key.is_down() {
+                send(Message::EditorCancelCommand);
             },
             _ => (),
         };
