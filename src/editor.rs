@@ -405,67 +405,90 @@ impl System for EditorSystem {
         self.camera.xform.scale *= Self::CAMERA_ZOOM_STEP_FACTOR.powf(delta.y as _);
     }
     fn on_text_input(&mut self, g: &Game, s: &str) {
+        if !self.is_active {
+            return;
+        }
         if self.is_entering_command {
             self.command_text.string += s;
             self.command_text.update_gl(&g.fonts.fonts[&FontID::Debug]);
         }
     }
-    fn on_message(&mut self, g: &Game, msg: &Message) {
-        match *msg {
-            Message::EnterEditor => { self.on_enter_editor(g); return; },
-            Message::LeaveEditor => { self.on_leave_editor(g); return; },
-            _ => (),
-        };
-
+    fn on_key(&mut self, g: &Game, key: Key) {
         if !self.is_active {
             return;
         }
-
         if self.is_entering_command {
-            match *msg {
-                Message::EditorCancelCommand => {
+            match key.code.unwrap() {
+                Keycode::Escape | Keycode::Return => if key.is_down() {
                     self.is_entering_command = false;
+                    self.command_text.string.clear();
+                    self.command_text.update_gl(&g.fonts.fonts[&FontID::Debug]);
                 },
-                Message::EditorConfirmCommand => {
-                    self.is_entering_command = false;
+                Keycode::Backspace => if key.is_down() {
+                    self.command_text.string.pop();
+                    self.command_text.update_gl(&g.fonts.fonts[&FontID::Debug]);
                 },
-                _ => {},
+                _ => (),
             };
             return;
         }
 
         let normal_camera_rotation_speed = Self::CAMERA_Z_ROTATION_SPEED_DEGREES.to_radians();
 
-        match *msg {
-            Message::EditorBeginEnterCommand => {
+        match key.code.unwrap() {
+            Keycode::Colon => if key.is_down() {
                 self.is_entering_command = true;
             },
-            Message::EditorToggleDrawGridFirst => self.draw_grid_first = !self.draw_grid_first,
-            Message::EditorToggleGrid => self.do_draw_grid = !self.do_draw_grid,
-            Message::EditorBeginPanCameraViaMouse => self.is_panning_camera = true,
-            Message::EditorEndPanCameraViaMouse => self.is_panning_camera = false,
-            Message::EditorBeginRotateCameraLeft => self.camera_rotation_speed = normal_camera_rotation_speed,
-            Message::EditorBeginRotateCameraRight => self.camera_rotation_speed = -normal_camera_rotation_speed,
-            Message::EditorEndRotateCamera => self.camera_rotation_speed = 0.,
-            Message::EditorRecenterCamera => self.camera.xform.position = Vec3::zero(),
-            Message::EditorResetCameraRotation => {
-                self.camera.xform.rotation_z_radians = 0.;
+            Keycode::G => if key.is_down() {
+                self.do_draw_grid = !self.do_draw_grid;
+            },
+            Keycode::F => if key.is_down() {
+                self.draw_grid_first = !self.draw_grid_first;
+            },
+            Keycode::Space => self.is_panning_camera = key.is_down(),
+            Keycode::R => self.camera_rotation_speed = -normal_camera_rotation_speed * key.is_down() as i32 as f32,
+            Keycode::T => self.camera_rotation_speed =  normal_camera_rotation_speed * key.is_down() as i32 as f32,
+            Keycode::C => if key.is_down() {
+                self.camera.xform = Default::default();
                 self.prev_camera_rotation_z_radians = 0.;
                 self.next_camera_rotation_z_radians = 0.;
             },
-            Message::EditorResetCameraZoom => self.camera.xform.scale = Vec2::one(),
-            Message::EditorAddVertexAtCurrentMousePosition => self.add_vertex_at_current_mouse_position(g),
-            Message::EditorEndPolygon => self.end_polygon(g),
-            Message::EditorToggleSelectAll => self.toggle_select_all(g),
-            Message::EditorDeleteSelected => self.deleted_selected(g),
-            Message::EditorBeginSlideHue { speed } => self.hsva_sliding_speed.h = speed * 6.,
-            Message::EditorBeginSlideSaturation { speed } => self.hsva_sliding_speed.s = speed,
-            Message::EditorBeginSlideValue { speed } => self.hsva_sliding_speed.v = speed,
-            Message::EditorBeginSlideAlpha { speed } => self.hsva_sliding_speed.a = speed,
-            Message::EditorEndSlideHue => self.hsva_sliding_speed.h = 0.,
-            Message::EditorEndSlideSaturation => self.hsva_sliding_speed.s = 0.,
-            Message::EditorEndSlideValue => self.hsva_sliding_speed.v = 0.,
-            Message::EditorEndSlideAlpha => self.hsva_sliding_speed.a = 0.,
+            Keycode::Return => if key.is_down() {
+                self.end_polygon(g);
+            },
+            Keycode::A => if key.is_down() {
+                self.toggle_select_all(g);
+            },
+            Keycode::Backspace | Keycode::Delete | Keycode::X => if key.is_down() {
+                self.deleted_selected(g);
+            },
+            Keycode::J => self.hsva_sliding_speed.v =  1. * key.is_down() as i32 as f32,
+            Keycode::K => self.hsva_sliding_speed.v = -1. * key.is_down() as i32 as f32,
+            Keycode::L => self.hsva_sliding_speed.s = -1. * key.is_down() as i32 as f32,
+            Keycode::M => self.hsva_sliding_speed.s =  1. * key.is_down() as i32 as f32,
+            Keycode::U => self.hsva_sliding_speed.h = -6. * key.is_down() as i32 as f32,
+            Keycode::I => self.hsva_sliding_speed.h =  6. * key.is_down() as i32 as f32,
+            Keycode::O => self.hsva_sliding_speed.a =  1. * key.is_down() as i32 as f32,
+            Keycode::P => self.hsva_sliding_speed.a = -1. * key.is_down() as i32 as f32,
+            _ => (),
+        };
+    }
+    fn on_mouse_button(&mut self, g: &Game, btn: MouseButton) {
+        match btn.button {
+            Sdl2MouseButton::Left => {
+                self.add_vertex_at_current_mouse_position(g);
+            },
+            Sdl2MouseButton::Middle => {},
+            Sdl2MouseButton::Right => {},
+            Sdl2MouseButton::Unknown => {},
+            Sdl2MouseButton::X1 => {},
+            Sdl2MouseButton::X2 => {},
+        };
+    }
+    fn on_message(&mut self, g: &Game, msg: &Message) {
+        match *msg {
+            Message::EnterEditor => { self.on_enter_editor(g); return; },
+            Message::LeaveEditor => { self.on_leave_editor(g); return; },
             _ => (),
         };
     }

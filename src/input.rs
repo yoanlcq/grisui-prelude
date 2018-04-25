@@ -34,12 +34,8 @@ impl System for InputSystem {
     fn on_mouse_button(&mut self, g: &Game, btn: MouseButton) {
         *g.input.mouse_buttons.borrow_mut().entry(btn.button).or_insert(btn.state) = btn.state;
 
-        let send = |msg| g.messages.borrow_mut().push_back(msg);
-
         match btn.button {
-            Sdl2MouseButton::Left => {
-                send(Message::EditorAddVertexAtCurrentMousePosition);
-            },
+            Sdl2MouseButton::Left => {},
             Sdl2MouseButton::Middle => {},
             Sdl2MouseButton::Right => {},
             Sdl2MouseButton::Unknown => {},
@@ -78,90 +74,6 @@ impl System for InputSystem {
                         GameMode::Editor
                     },
                 });
-            },
-            Keycode::G => if key.is_down() {
-                send(Message::EditorToggleGrid);
-            },
-            Keycode::F => if key.is_down() {
-                send(Message::EditorToggleDrawGridFirst);
-            },
-            Keycode::Space => if key.is_down() {
-                send(Message::EditorBeginPanCameraViaMouse);
-            } else {
-                send(Message::EditorEndPanCameraViaMouse);
-            },
-            Keycode::R => if key.is_down() {
-                // NOTE: If you rotate the camera to the right, the world rotates to the left!
-                send(Message::EditorBeginRotateCameraRight);
-            } else {
-                send(Message::EditorEndRotateCamera);
-            },
-            Keycode::T => if key.is_down() {
-                // NOTE: If you rotate the camera to the left, the world rotates to the right!
-                send(Message::EditorBeginRotateCameraLeft);
-            } else {
-                send(Message::EditorEndRotateCamera);
-            },
-            Keycode::C => if key.is_down() {
-                send(Message::EditorRecenterCamera);
-                send(Message::EditorResetCameraRotation);
-                send(Message::EditorResetCameraZoom);
-            },
-            Keycode::Return => if key.is_down() {
-                send(Message::EditorEndPolygon);
-                send(Message::EditorConfirmCommand);
-            },
-            Keycode::A => if key.is_down() {
-                send(Message::EditorToggleSelectAll);
-            },
-            Keycode::Backspace | Keycode::Delete | Keycode::X => if key.is_down() {
-                send(Message::EditorDeleteSelected);
-            },
-            Keycode::J => if key.is_down() {
-                send(Message::EditorBeginSlideValue { speed: 1. });
-            } else {
-                send(Message::EditorEndSlideValue);
-            },
-            Keycode::K => if key.is_down() {
-                send(Message::EditorBeginSlideValue { speed: -1. });
-            } else {
-                send(Message::EditorEndSlideValue);
-            },
-            Keycode::L => if key.is_down() {
-                send(Message::EditorBeginSlideSaturation { speed: -1. });
-            } else {
-                send(Message::EditorEndSlideSaturation);
-            },
-            Keycode::M => if key.is_down() {
-                send(Message::EditorBeginSlideSaturation { speed: 1. });
-            } else {
-                send(Message::EditorEndSlideSaturation);
-            },
-            Keycode::U => if key.is_down() {
-                send(Message::EditorBeginSlideHue { speed: -1. });
-            } else {
-                send(Message::EditorEndSlideHue);
-            },
-            Keycode::I => if key.is_down() {
-                send(Message::EditorBeginSlideHue { speed: 1. });
-            } else {
-                send(Message::EditorEndSlideHue);
-            },
-            Keycode::O => if key.is_down() {
-                send(Message::EditorBeginSlideAlpha { speed: 1. });
-            } else {
-                send(Message::EditorEndSlideAlpha);
-            },
-            Keycode::P => if key.is_down() {
-                send(Message::EditorBeginSlideAlpha { speed: -1. });
-            } else {
-                send(Message::EditorEndSlideAlpha);
-            },
-            Keycode::Colon => if key.is_down() {
-                send(Message::EditorBeginEnterCommand);
-            },
-            Keycode::Escape => if key.is_down() {
-                send(Message::EditorCancelCommand);
             },
             _ => (),
         };
