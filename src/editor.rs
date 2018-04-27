@@ -1,4 +1,5 @@
 use std::ptr;
+use std::fs::File;
 use gl;
 use gx::{Object, BufferUsage};
 use system::*;
@@ -349,6 +350,7 @@ impl EditorSystem {
 
     fn add_vertex_at_current_mouse_position(&mut self, g: &Game) {
         debug_assert!(self.is_active);
+        debug!("Editor: Adding vertex at current mouse position");
         if self.draft_vertices_ended {
             return;
         }
@@ -373,6 +375,52 @@ impl EditorSystem {
         self.draft_vertices.vertices.clear();
         self.draft_vertices.update_and_resize_vbo();
         self.draft_vertices_ended = false;
+    }
+    fn execute_current_command(&mut self, g: &Game) {
+        let cmd = self.command_text.string.clone();
+        self.execute_command(g, &cmd);
+    }
+    fn execute_command(&mut self, g: &Game, mut cmd: &str) {
+        if cmd == "" {
+            return;
+        }
+        if cmd.chars().nth(0).unwrap() == ':' {
+            cmd = &cmd[1..];
+        }
+
+        let line: Vec<_> = cmd.split_whitespace().collect();
+        if line.is_empty() {
+            return;
+        }
+        let cmd = &line[0];
+        let args = &line[1..];
+
+        match *cmd {
+            "helloworld" => info!("Editor: Hello world! args={:?}", args),
+            "w" => self.save_draft_mesh_to_file(g, args),
+            _ => error!("`{}` is not recognized as an editor command", cmd),
+        };
+    }
+    // M = moveto
+    // L = lineto
+    // C = curveto
+    // Q = quadratic Bézier curve
+    // Z = closepath
+    // Note: All of the commands above can also be expressed with lower letters. Capital letters means absolutely positioned, lower cases means relatively positioned.
+    fn save_draft_mesh_to_file(&mut self, _g: &Game, args: &[&str]) {
+        let filename = args[0];
+        info!("Saving draft mesh to file `{}`", filename);
+    
+        use ::std::io::Write;
+        let mut file = File::create(filename).unwrap();
+        for (i, v) in self.draft_vertices.vertices.iter().enumerate() {
+            let letter = if i == 0 { 'M' } else { 'L' };
+            let pos = v.position;
+            writeln!(file, "{} {} {}", letter, pos.x, pos.y).unwrap();
+        }
+        if self.draft_vertices_ended {
+            writeln!(file, "Z").unwrap();
+        }
     }
 }
 
@@ -418,8 +466,13 @@ impl System for EditorSystem {
             return;
         }
         if self.is_entering_command {
-            match key.code.unwrap() {
-                Keycode::Escape | Keycode::Return => if key.is_down() {
+            let keycode = key.code.unwrap();
+            match keycode {
+                Keycode::Escape | Keycode::Return | Keycode::Return2 | Keycode::KpEnter => if key.is_down() {
+                    match keycode {
+                        Keycode::Return | Keycode::Return2 | Keycode::KpEnter => self.execute_current_command(g),
+                        _ => (),
+                    };
                     self.is_entering_command = false;
                     self.command_text.string.clear();
                     self.command_text.update_gl(&g.fonts.fonts[&FontID::Debug]);
@@ -476,6 +529,7 @@ impl System for EditorSystem {
     fn on_mouse_button(&mut self, g: &Game, btn: MouseButton) {
         match btn.button {
             Sdl2MouseButton::Left => {
+                debug!("Editor: Received Left click event");
                 self.add_vertex_at_current_mouse_position(g);
             },
             Sdl2MouseButton::Middle => {},
