@@ -31,12 +31,12 @@ pub struct ShapeInstance {
 
 #[derive(Debug, Default, Clone)]
 pub struct Scene {
-    pub instances: Vec<ShapeInstance>,
+    pub shape_instances: Vec<ShapeInstance>,
 }
 
 impl Scene {
     pub fn save(&self, f: &mut io::Write) -> io::Result<()> {
-        for instance in self.instances.iter() {
+        for instance in self.shape_instances.iter() {
             let &ShapeInstance {
                 ref source_shape_name, ref name,
                 xform: Xform2D {
@@ -64,22 +64,22 @@ impl Scene {
         while let Some(cmd) = words.next() {
             match cmd {
                 "I" => {
-                    scene.instances.push(ShapeInstance::default());
-                    scene.instances.last_mut().unwrap().source_shape_name = words.next().unwrap().to_owned();
-                    scene.instances.last_mut().unwrap().name = words.next().unwrap().to_owned();
+                    scene.shape_instances.push(ShapeInstance::default());
+                    scene.shape_instances.last_mut().unwrap().source_shape_name = words.next().unwrap().to_owned();
+                    scene.shape_instances.last_mut().unwrap().name = words.next().unwrap().to_owned();
                 },
                 "P" => {
-                    let p = &mut scene.instances.last_mut().unwrap().xform.position;
+                    let p = &mut scene.shape_instances.last_mut().unwrap().xform.position;
                     p.x = words.next().unwrap().parse().unwrap();
                     p.y = words.next().unwrap().parse().unwrap();
                     p.z = words.next().unwrap().parse().unwrap();
                 },
                 "R" => {
                     let degrees: f32 = words.next().unwrap().parse().unwrap();
-                    scene.instances.last_mut().unwrap().xform.rotation_z_radians = degrees.to_radians();
+                    scene.shape_instances.last_mut().unwrap().xform.rotation_z_radians = degrees.to_radians();
                 },
                 "S" => {
-                    let s = &mut scene.instances.last_mut().unwrap().xform.scale;
+                    let s = &mut scene.shape_instances.last_mut().unwrap().xform.scale;
                     s.x = words.next().unwrap().parse().unwrap();
                     s.y = words.next().unwrap().parse().unwrap();
                 },
