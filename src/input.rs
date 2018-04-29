@@ -61,7 +61,7 @@ impl System for InputSystem {
         let send = |msg| g.messages.borrow_mut().push_back(msg);
 
         match key.code.unwrap() {
-            Keycode::Tab => if key.is_down() {
+            Keycode::F8 => if key.is_down() {
                 g.game_mode.set(match g.game_mode.get() {
                     GameMode::Editor => {
                         send(Message::LeaveEditor);

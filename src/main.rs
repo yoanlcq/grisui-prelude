@@ -73,7 +73,7 @@ fn main() {
 
         fps_counter.add_frame();
         if let Some(stats) = fps_counter.try_sampling_fps() {
-            info!("Main: New FPS stats: {}", &stats); // XXX
+            trace!("Main: New FPS stats: {}", &stats);
             if stats.fps() > desired_max_fps && enable_fixing_broken_vsync {
                 time.fps_ceil = Some(desired_max_fps);
                 warn!("Main: Broken VSync detected; FPS ceil is now set to {}", time.fps_ceil.unwrap());

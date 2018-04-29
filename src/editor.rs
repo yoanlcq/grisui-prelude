@@ -1,5 +1,5 @@
 use std::ptr;
-use std::fs::File;
+use std::fs::{self, File};
 use gl;
 use gx::{Object, BufferUsage};
 use system::*;
@@ -380,26 +380,24 @@ impl EditorSystem {
         let cmd = self.command_text.string.clone();
         self.execute_command(g, &cmd);
     }
-    fn execute_command(&mut self, g: &Game, mut cmd: &str) {
-        if cmd == "" {
-            return;
+    fn execute_command(&mut self, g: &Game, cmd: &str) {
+        let line = Self::command_components(cmd);
+        let cmd = &line[0];
+        let args = &line[1..];
+        match *cmd {
+            "w" => self.save_draft_mesh_to_file(g, args),
+            "e" => self.load_draft_mesh_from_file(g, args),
+            _ => error!("`{}` is not recognized as an editor command", cmd),
+        };
+    }
+    fn command_components(mut cmd: &str) -> Vec<&str> {
+        if cmd.is_empty() {
+            return vec![];
         }
         if cmd.chars().nth(0).unwrap() == ':' {
             cmd = &cmd[1..];
         }
-
-        let line: Vec<_> = cmd.split_whitespace().collect();
-        if line.is_empty() {
-            return;
-        }
-        let cmd = &line[0];
-        let args = &line[1..];
-
-        match *cmd {
-            "helloworld" => info!("Editor: Hello world! args={:?}", args),
-            "w" => self.save_draft_mesh_to_file(g, args),
-            _ => error!("`{}` is not recognized as an editor command", cmd),
-        };
+        cmd.lines().next().unwrap().split_whitespace().collect()
     }
     // M = moveto
     // L = lineto
@@ -407,6 +405,51 @@ impl EditorSystem {
     // Q = quadratic Bézier curve
     // Z = closepath
     // Note: All of the commands above can also be expressed with lower letters. Capital letters means absolutely positioned, lower cases means relatively positioned.
+    fn load_draft_mesh_from_file(&mut self, _g: &Game, args: &[&str]) {
+        let filename = args[0];
+        info!("Loading draft mesh from file `{}`", filename);
+    
+        let data = {
+            use ::std::io::Read;
+            let mut file = match File::open(filename) {
+                Ok(f) => f,
+                Err(e) => {
+                    error!("Failed to open `{}`: {}", filename, e);
+                    return;
+                },
+            };
+            let mut buf = String::new();
+            file.read_to_string(&mut buf).unwrap();
+            buf
+        };
+
+        self.draft_vertices.vertices.clear();
+        self.draft_vertices_ended = false;
+
+        let mut words = data.split_whitespace();
+        while let Some(cmd) = words.next() {
+            match cmd {
+                "M" => {
+                    let x: f32 = words.next().unwrap().parse().unwrap();
+                    let y: f32 = words.next().unwrap().parse().unwrap();
+                    let position = Vec3 { x, y, z: 0. };
+                    let color = Rgba::yellow();
+                    self.draft_vertices.vertices.push(Vertex { position, color });
+                },
+                "L" => {
+                    let x: f32 = words.next().unwrap().parse().unwrap();
+                    let y: f32 = words.next().unwrap().parse().unwrap();
+                    let position = Vec3 { x, y, z: 0. };
+                    let color = Rgba::yellow();
+                    self.draft_vertices.vertices.push(Vertex { position, color });
+                },
+                "Z" => self.draft_vertices_ended = true,
+                _ => unimplemented!{},
+            };
+        }
+
+        self.draft_vertices.update_and_resize_vbo();
+    }
     fn save_draft_mesh_to_file(&mut self, _g: &Game, args: &[&str]) {
         let filename = args[0];
         info!("Saving draft mesh to file `{}`", filename);
@@ -421,6 +464,73 @@ impl EditorSystem {
         if self.draft_vertices_ended {
             writeln!(file, "Z").unwrap();
         }
+    }
+    fn autocomplete_command(&mut self, g: &Game) {
+        let candidates = { // 'words' borrows from command_text; Scope its lifetime.
+            let words = Self::command_components(&self.command_text.string);
+            match words.len() {
+                0 => { /* Nothing to autocomplete */ return; },
+                1 => { /* autocomplete command itself; TODO ? */ return; },
+                len @ _ => {
+                    /* autocomplete the last arg */
+                    let cwd = fs::canonicalize(".").unwrap();
+                    let cwd_s = cwd.as_os_str().to_str().unwrap();
+                    let mut incomplete = cwd.clone();
+                    incomplete.push(words[len-1]);
+                    let incomplete_s = incomplete.as_os_str().to_str().unwrap();
+                    let mut candidates = vec![];
+                    let search_in = if words[len-1].ends_with("/") {
+                        incomplete_s
+                    } else {
+                        incomplete.parent().map(|p| p.as_os_str().to_str().unwrap()).unwrap_or(".")
+                    };
+                    for entry in fs::read_dir(search_in).unwrap().filter_map(Result::ok) {
+                        let complete = fs::canonicalize(entry.path()).unwrap();
+                        let complete_s = complete.as_os_str().to_str().unwrap();
+                        trace!("search_in: {}, incomplete: {}, complete: {}", search_in, incomplete_s, complete_s);
+                        if complete_s.starts_with(incomplete_s) {
+                            let mut candidate = complete_s[(cwd_s.len() + 1) ..].to_string();
+                            if entry.file_type().unwrap().is_dir() {
+                                candidate += "/";
+                            }
+                            candidates.push(candidate);
+                        }
+                    }
+                    candidates
+                },
+            }
+        };
+
+        for candidate in &candidates {
+            trace!("Candidate: {}", candidate);
+        }
+        trace!("---");
+
+        // Remove everything except the first line.
+        self.command_text.string = self.command_text.string.lines().next().unwrap().to_owned();
+
+        if candidates.len() == 1 {
+            let mut words: Vec<_> = {
+                let words = Self::command_components(&self.command_text.string);
+                words.into_iter().map(|s| s.to_string()).collect()
+            };
+            *words.last_mut().unwrap() = candidates[0].clone();
+
+            self.command_text.string = ":".to_owned();
+            for (i, word) in words.into_iter().enumerate() {
+                if i > 0 {
+                    self.command_text.string += " ";
+                }
+                self.command_text.string += &word;
+            }
+        } else if candidates.len() > 1 {
+            for candidate in &candidates {
+                self.command_text.string += "\n";
+                self.command_text.string += candidate;
+            }
+        }
+
+        self.command_text.update_gl(&g.fonts.fonts[&FontID::Debug]);
     }
 }
 
@@ -457,6 +567,10 @@ impl System for EditorSystem {
             return;
         }
         if self.is_entering_command {
+            if !self.command_text.string.is_empty() {
+                // Clear everything except the first line
+                self.command_text.string = self.command_text.string.lines().next().unwrap().to_owned();
+            }
             self.command_text.string += s;
             self.command_text.update_gl(&g.fonts.fonts[&FontID::Debug]);
         }
@@ -478,8 +592,15 @@ impl System for EditorSystem {
                     self.command_text.update_gl(&g.fonts.fonts[&FontID::Debug]);
                 },
                 Keycode::Backspace => if key.is_down() {
+                    if !self.command_text.string.is_empty() {
+                        // Clear everything except the first line
+                        self.command_text.string = self.command_text.string.lines().next().unwrap().to_owned();
+                    }
                     self.command_text.string.pop();
                     self.command_text.update_gl(&g.fonts.fonts[&FontID::Debug]);
+                },
+                Keycode::Tab => if key.is_down() {
+                    self.autocomplete_command(g);
                 },
                 _ => (),
             };
@@ -528,7 +649,7 @@ impl System for EditorSystem {
     }
     fn on_mouse_button(&mut self, g: &Game, btn: MouseButton) {
         match btn.button {
-            Sdl2MouseButton::Left => {
+            Sdl2MouseButton::Left => if btn.is_down() {
                 debug!("Editor: Received Left click event");
                 self.add_vertex_at_current_mouse_position(g);
             },
