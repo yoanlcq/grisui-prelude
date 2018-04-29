@@ -7,9 +7,15 @@ pub struct Paths {
     pub res: PathBuf,
     pub fonts: PathBuf,
     pub saves: PathBuf,
+    pub shapes: PathBuf,
 }
 
 impl Paths {
+    pub fn shape_path_from_name(&self, name: &str) -> PathBuf {
+        let mut path = self.shapes.clone();
+        path.push(format!("{}.shape", name));
+        path
+    }
     pub fn new() -> Self {
     
         fn check_if_has_res_content(parent: DirEntry, entries: ReadDir) -> Option<PathBuf> {
@@ -17,7 +23,7 @@ impl Paths {
                 ("fonts", true),
                 ("sounds", true),
                 ("musics", true),
-                ("meshes", true),
+                ("shapes", true),
                 ("palette.txt", false),
             ];
             for path in entries.filter(Result::is_ok).map(Result::unwrap).map(|x| x.path()) {
@@ -98,10 +104,16 @@ impl Paths {
         assert!(path_to_fonts.is_dir());
         info!("Paths: Fonts path located at `{}`", path_to_fonts.display());
 
+        let mut path_to_shapes = path_to_res.clone();
+        path_to_shapes.push("shapes");
+        assert!(path_to_shapes.is_dir());
+        info!("Paths: Shapes path located at `{}`", path_to_shapes.display());
+
         Self {
             res: path_to_res,
             fonts: path_to_fonts,
             saves: path_to_saves,
+            shapes: path_to_shapes,
         }
     }
 }

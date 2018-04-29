@@ -64,9 +64,11 @@ impl Scene {
         while let Some(cmd) = words.next() {
             match cmd {
                 "I" => {
-                    scene.shape_instances.push(ShapeInstance::default());
-                    scene.shape_instances.last_mut().unwrap().source_shape_name = words.next().unwrap().to_owned();
-                    scene.shape_instances.last_mut().unwrap().name = words.next().unwrap().to_owned();
+                    let source_shape_name = words.next().unwrap().to_owned();
+                    let name = words.next().unwrap().to_owned();
+                    scene.shape_instances.push(ShapeInstance {
+                        source_shape_name, name, xform: Xform2D::default(),
+                    });
                 },
                 "P" => {
                     let p = &mut scene.shape_instances.last_mut().unwrap().xform.position;

@@ -233,6 +233,7 @@ pub struct EditorSystem {
     is_active: bool,
     primary_color: Rgba<f32>,
     draft_vertices: ColorVertexArray,
+    draft_mesh_name: Option<String>,
     draft_vertices_ended: bool,
     text: Text,
     text_position: Vec2<i32>,
@@ -307,6 +308,7 @@ impl EditorSystem {
             camera, cursor_vertices, grid_origin_vertices, grid_vertices_1, grid_vertices_01,
             draft_vertices,
             draft_vertices_ended: false,
+            draft_mesh_name: None,
             primary_color: Rgba::red(),
             draw_grid_first: true,
             do_draw_grid: true,
@@ -385,8 +387,8 @@ impl EditorSystem {
         let cmd = &line[0];
         let args = &line[1..];
         match *cmd {
-            "w" => self.save_draft_mesh_to_file(g, args),
-            "e" => self.load_draft_mesh_from_file(g, args),
+            "w" => self.save_draft_mesh_with_name(g, args),
+            "e" => self.load_draft_mesh_by_name(g, args),
             _ => error!("`{}` is not recognized as an editor command", cmd),
         };
     }
@@ -398,6 +400,24 @@ impl EditorSystem {
             cmd = &cmd[1..];
         }
         cmd.lines().next().unwrap().split_whitespace().collect()
+    }
+    fn load_draft_mesh_by_name(&mut self, g: &Game, args: &[&str]) {
+        let name = args[0];
+        let path = g.paths.shape_path_from_name(&name);
+        let path_s = path.as_os_str().to_str().unwrap();
+        self.load_draft_mesh_from_file(g, &[path_s]);
+    }
+    fn save_draft_mesh_with_name(&mut self, g: &Game, args: &[&str]) {
+        let name = if args.is_empty() {
+            self.draft_mesh_name.as_ref().unwrap().to_owned()
+        } else {
+            args[0].to_owned()
+        };
+        let path = g.paths.shape_path_from_name(&name);
+        let path_s = path.as_os_str().to_str().unwrap();
+        self.save_draft_mesh_to_file(g, &[path_s]);
+
+        self.draft_mesh_name = Some(name);
     }
     // M = moveto
     // L = lineto
