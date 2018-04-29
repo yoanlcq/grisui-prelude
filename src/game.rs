@@ -1,6 +1,6 @@
 use std::time::Duration;
 use std::cell::{RefCell, Cell};
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
 use duration_ext::DurationExt;
 use system::{self, System, Message};
 use input::{Input, InputSystem};
@@ -10,6 +10,8 @@ use gameplay;
 use mesh;
 use font;
 use paths;
+use scene;
+use shape;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum GameMode {
@@ -32,6 +34,8 @@ pub struct Game {
 
     pub paths: paths::Paths,
     pub fonts: font::Fonts,
+    pub loaded_scenes: RefCell<HashMap<String, scene::Scene>>,
+    pub loaded_shapes: RefCell<HashMap<String, shape::Shape>>,
     pub color_mesh_gl_program: mesh::color_mesh::Program,
     pub text_gl_program: mesh::text::Program,
 }
@@ -59,6 +63,8 @@ impl Game {
 
         let paths = paths::Paths::new();
         let fonts = font::Fonts::from_path(&paths.fonts).unwrap();
+        let loaded_scenes = RefCell::new(paths.load_scenes());
+        let loaded_shapes = RefCell::new(paths.load_shapes(&color_mesh_gl_program));
 
         let systems = RefCell::new(vec![
             Box::new(InputSystem) as Box<System>,
@@ -82,6 +88,8 @@ impl Game {
             game_mode,
             paths,
             fonts,
+            loaded_scenes,
+            loaded_shapes,
             color_mesh_gl_program,
             text_gl_program,
         }

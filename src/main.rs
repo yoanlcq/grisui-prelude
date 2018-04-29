@@ -28,6 +28,7 @@ pub mod mesh;
 pub mod editor;
 pub mod gameplay;
 pub mod scene;
+pub mod shape;
 pub mod camera;
 pub mod xform;
 pub mod message;

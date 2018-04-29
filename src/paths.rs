@@ -1,6 +1,11 @@
-use std::fs::{self, ReadDir, DirEntry};
+use std::fs::{self, File, ReadDir, DirEntry};
 use std::path::PathBuf;
 use std::env;
+use std::collections::HashMap;
+
+use mesh::color_mesh;
+use scene;
+use shape;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Paths {
@@ -8,12 +13,44 @@ pub struct Paths {
     pub fonts: PathBuf,
     pub saves: PathBuf,
     pub shapes: PathBuf,
+    pub scenes: PathBuf,
 }
 
 impl Paths {
+    pub fn load_scenes(&self) -> HashMap<String, scene::Scene> {
+        let mut scenes = HashMap::new();
+        for entry in fs::read_dir(&self.scenes).unwrap().filter_map(Result::ok) {
+            if let Some(ext) = entry.path().extension() {
+                if ext == "scene" {
+                    let scene = scene::Scene::load(&mut File::open(entry.path()).unwrap()).unwrap();
+                    let name = entry.path().file_stem().unwrap().to_str().unwrap().to_owned();
+                    scenes.insert(name, scene);
+                }
+            }
+        }
+        scenes
+    }
+    pub fn load_shapes(&self, color_mesh_gl_program: &color_mesh::Program) -> HashMap<String, shape::Shape> {
+        let mut shapes = HashMap::new();
+        for entry in fs::read_dir(&self.shapes).unwrap().filter_map(Result::ok) {
+            if let Some(ext) = entry.path().extension() {
+                if ext == "shape" {
+                    let shape = shape::Shape::load(color_mesh_gl_program, &mut File::open(entry.path()).unwrap()).unwrap();
+                    let name = entry.path().file_stem().unwrap().to_str().unwrap().to_owned();
+                    shapes.insert(name, shape);
+                }
+            }
+        }
+        shapes
+    }
     pub fn shape_path_from_name(&self, name: &str) -> PathBuf {
         let mut path = self.shapes.clone();
         path.push(format!("{}.shape", name));
+        path
+    }
+    pub fn scene_path_from_name(&self, name: &str) -> PathBuf {
+        let mut path = self.scenes.clone();
+        path.push(format!("{}.scene", name));
         path
     }
     pub fn new() -> Self {
@@ -24,6 +61,7 @@ impl Paths {
                 ("sounds", true),
                 ("musics", true),
                 ("shapes", true),
+                ("scenes", true),
                 ("palette.txt", false),
             ];
             for path in entries.filter(Result::is_ok).map(Result::unwrap).map(|x| x.path()) {
@@ -109,11 +147,17 @@ impl Paths {
         assert!(path_to_shapes.is_dir());
         info!("Paths: Shapes path located at `{}`", path_to_shapes.display());
 
+        let mut path_to_scenes = path_to_res.clone();
+        path_to_scenes.push("scenes");
+        assert!(path_to_scenes.is_dir());
+        info!("Paths: Scenes path located at `{}`", path_to_scenes.display());
+
         Self {
             res: path_to_res,
             fonts: path_to_fonts,
             saves: path_to_saves,
             shapes: path_to_shapes,
+            scenes: path_to_scenes,
         }
     }
 }

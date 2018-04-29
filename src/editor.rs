@@ -9,6 +9,7 @@ use mesh::{self, vertex_array, color_mesh::{self, Vertex}};
 use duration_ext::DurationExt;
 use text::Text;
 use font::FontID;
+use shape::Shape;
 
 type ColorVertexArray = vertex_array::VertexArray<color_mesh::Program>;
 
@@ -232,9 +233,7 @@ pub struct EditorSystem {
     next_camera_rotation_z_radians: f32,
     is_active: bool,
     primary_color: Rgba<f32>,
-    draft_vertices: ColorVertexArray,
-    draft_mesh_name: Option<String>,
-    draft_vertices_ended: bool,
+    working_shape_name: String,
     text: Text,
     text_position: Vec2<i32>,
     text_color: Rgba<f32>,
@@ -298,17 +297,12 @@ impl EditorSystem {
                 Vertex { position: Vec3::unit_y(), color: Rgba::blue(), },
             ]
         );
-        let draft_vertices = ColorVertexArray::from_vertices(
-            &color_mesh_gl_program, "Draft Vertices", BufferUsage::DynamicDraw, vec![]
-        );
         let text = Text::new(text_gl_program, "Editor Text");
         let hsva_sliders = HsvaSliders::new(&color_mesh_gl_program);
         let camera = OrthoCamera2D::new(viewport_size, Self::CAMERA_NEAR, Self::CAMERA_FAR);
         Self {
             camera, cursor_vertices, grid_origin_vertices, grid_vertices_1, grid_vertices_01,
-            draft_vertices,
-            draft_vertices_ended: false,
-            draft_mesh_name: None,
+            working_shape_name: "default".to_owned(),
             primary_color: Rgba::red(),
             draw_grid_first: true,
             do_draw_grid: true,
@@ -353,30 +347,54 @@ impl EditorSystem {
     fn add_vertex_at_current_mouse_position(&mut self, g: &Game) {
         debug_assert!(self.is_active);
         debug!("Editor: Adding vertex at current mouse position");
-        if self.draft_vertices_ended {
+        let mut loaded_shapes = g.loaded_shapes.borrow_mut();
+        let working_shape = match loaded_shapes.get_mut(&self.working_shape_name) {
+            Some(s) => s,
+            None => {
+                error!("Editor: No shape to edit");
+                return;
+            },
+        };
+        if working_shape.is_path_closed {
             return;
         }
         if let Some(pos) = g.input.mouse_position() {
             let color = self.primary_color;
             let mut position = self.camera.viewport_to_world(pos, 0.);
             // position.z = 0.;
-            self.draft_vertices.vertices.push(Vertex { position, color, });
-            self.draft_vertices.update_and_resize_vbo();
+            working_shape.vertices.vertices.push(Vertex { position, color, });
+            working_shape.vertices.update_and_resize_vbo();
         }
     }
-    fn end_polygon(&mut self, _g: &Game) {
+    fn end_polygon(&mut self, g: &Game) {
         debug_assert!(self.is_active);
-        self.draft_vertices_ended = true;
+        let mut loaded_shapes = g.loaded_shapes.borrow_mut();
+        let working_shape = match loaded_shapes.get_mut(&self.working_shape_name) {
+            Some(s) => s,
+            None => {
+                error!("Editor: No shape to edit");
+                return;
+            },
+        };
+        working_shape.is_path_closed = true;
     }
     fn toggle_select_all(&mut self, _g: &Game) {
         debug_assert!(self.is_active);
         unimplemented!{}
     }
-    fn deleted_selected(&mut self, _g: &Game) {
+    fn deleted_selected(&mut self, g: &Game) {
         debug_assert!(self.is_active);
-        self.draft_vertices.vertices.clear();
-        self.draft_vertices.update_and_resize_vbo();
-        self.draft_vertices_ended = false;
+        let mut loaded_shapes = g.loaded_shapes.borrow_mut();
+        let working_shape = match loaded_shapes.get_mut(&self.working_shape_name) {
+            Some(s) => s,
+            None => {
+                error!("Editor: No shape to edit");
+                return;
+            },
+        };
+        working_shape.vertices.vertices.clear();
+        working_shape.vertices.update_and_resize_vbo();
+        working_shape.is_path_closed = false;
     }
     fn execute_current_command(&mut self, g: &Game) {
         let cmd = self.command_text.string.clone();
@@ -387,9 +405,9 @@ impl EditorSystem {
         let cmd = &line[0];
         let args = &line[1..];
         match *cmd {
-            "w" => self.save_draft_mesh_with_name(g, args),
-            "e" => self.load_draft_mesh_by_name(g, args),
-            _ => error!("`{}` is not recognized as an editor command", cmd),
+            "w" => self.save_working_shape_with_name(g, args),
+            "e" => self.load_working_shape_by_name(g, args),
+            _ => error!("Editor: `{}` is not recognized as an editor command", cmd),
         };
     }
     fn command_components(mut cmd: &str) -> Vec<&str> {
@@ -401,90 +419,40 @@ impl EditorSystem {
         }
         cmd.lines().next().unwrap().split_whitespace().collect()
     }
-    fn load_draft_mesh_by_name(&mut self, g: &Game, args: &[&str]) {
+    fn load_working_shape_by_name(&mut self, g: &Game, args: &[&str]) {
+        if args.is_empty() {
+            error!("Editor: Not enough arguments for command 'e': missing shape name.");
+            return;
+        }
         let name = args[0];
+        self.working_shape_name = name.to_owned();
         let path = g.paths.shape_path_from_name(&name);
-        let path_s = path.as_os_str().to_str().unwrap();
-        self.load_draft_mesh_from_file(g, &[path_s]);
+        let shape = match File::open(&path) {
+            Ok(mut f) => Shape::load(&g.color_mesh_gl_program, &mut f).unwrap(),
+            Err(_) => Shape::new(&g.color_mesh_gl_program),
+        };
+        g.loaded_shapes.borrow_mut().insert(name.to_owned(), shape);
     }
-    fn save_draft_mesh_with_name(&mut self, g: &Game, args: &[&str]) {
+    fn save_working_shape_with_name(&mut self, g: &Game, args: &[&str]) {
         let name = if args.is_empty() {
-            self.draft_mesh_name.as_ref().unwrap().to_owned()
+            self.working_shape_name.to_owned()
         } else {
             args[0].to_owned()
         };
         let path = g.paths.shape_path_from_name(&name);
-        let path_s = path.as_os_str().to_str().unwrap();
-        self.save_draft_mesh_to_file(g, &[path_s]);
-
-        self.draft_mesh_name = Some(name);
-    }
-    // M = moveto
-    // L = lineto
-    // C = curveto
-    // Q = quadratic Bézier curve
-    // Z = closepath
-    // Note: All of the commands above can also be expressed with lower letters. Capital letters means absolutely positioned, lower cases means relatively positioned.
-    fn load_draft_mesh_from_file(&mut self, _g: &Game, args: &[&str]) {
-        let filename = args[0];
-        info!("Loading draft mesh from file `{}`", filename);
-    
-        let data = {
-            use ::std::io::Read;
-            let mut file = match File::open(filename) {
-                Ok(f) => f,
-                Err(e) => {
-                    error!("Failed to open `{}`: {}", filename, e);
-                    return;
-                },
-            };
-            let mut buf = String::new();
-            file.read_to_string(&mut buf).unwrap();
-            buf
-        };
-
-        self.draft_vertices.vertices.clear();
-        self.draft_vertices_ended = false;
-
-        let mut words = data.split_whitespace();
-        while let Some(cmd) = words.next() {
-            match cmd {
-                "M" => {
-                    let x: f32 = words.next().unwrap().parse().unwrap();
-                    let y: f32 = words.next().unwrap().parse().unwrap();
-                    let position = Vec3 { x, y, z: 0. };
-                    let color = Rgba::yellow();
-                    self.draft_vertices.vertices.push(Vertex { position, color });
-                },
-                "L" => {
-                    let x: f32 = words.next().unwrap().parse().unwrap();
-                    let y: f32 = words.next().unwrap().parse().unwrap();
-                    let position = Vec3 { x, y, z: 0. };
-                    let color = Rgba::yellow();
-                    self.draft_vertices.vertices.push(Vertex { position, color });
-                },
-                "Z" => self.draft_vertices_ended = true,
-                _ => unimplemented!{},
-            };
+        let mut shape = Shape::new(&g.color_mesh_gl_program);
+        {
+            let source_shape = &g.loaded_shapes.borrow()[&self.working_shape_name];
+            shape.is_path_closed = source_shape.is_path_closed;
+            shape.vertices.vertices = source_shape.vertices.vertices.clone();
         }
+        shape.vertices.update_and_resize_vbo();
+        shape.save(&mut File::create(path).unwrap()).unwrap();
+        self.working_shape_name = name.clone();
+        g.loaded_shapes.borrow_mut().insert(self.working_shape_name.clone(), shape);
+    }
 
-        self.draft_vertices.update_and_resize_vbo();
-    }
-    fn save_draft_mesh_to_file(&mut self, _g: &Game, args: &[&str]) {
-        let filename = args[0];
-        info!("Saving draft mesh to file `{}`", filename);
-    
-        use ::std::io::Write;
-        let mut file = File::create(filename).unwrap();
-        for (i, v) in self.draft_vertices.vertices.iter().enumerate() {
-            let letter = if i == 0 { 'M' } else { 'L' };
-            let pos = v.position;
-            writeln!(file, "{} {} {}", letter, pos.x, pos.y).unwrap();
-        }
-        if self.draft_vertices_ended {
-            writeln!(file, "Z").unwrap();
-        }
-    }
+
     fn autocomplete_command(&mut self, g: &Game) {
         let candidates = { // 'words' borrows from command_text; Scope its lifetime.
             let words = Self::command_components(&self.command_text.string);
@@ -729,15 +697,15 @@ impl System for EditorSystem {
                 gl::DrawArrays(gl::TRIANGLES, 0, self.cursor_vertices.vertices.len() as _);
             };
 
-            let draw_draft_vertices = || {
+            let draw_working_shape = || if let Some(working_shape) = g.loaded_shapes.borrow().get(&self.working_shape_name) {
                 let mvp = self.camera.view_proj_matrix();
                 g.color_mesh_gl_program.set_uniform_mvp(&mvp);
                 gl::PointSize(8.);
                 gl::LineWidth(8.);
-                gl::BindVertexArray(self.draft_vertices.vao().gl_id());
-                gl::DrawArrays(gl::POINTS, 0, self.draft_vertices.vertices.len() as _);
-                let topology = if self.draft_vertices_ended { gl::LINE_LOOP } else { gl::LINE_STRIP };
-                gl::DrawArrays(topology, 0, self.draft_vertices.vertices.len() as _);
+                gl::BindVertexArray(working_shape.vertices.vao().gl_id());
+                gl::DrawArrays(gl::POINTS, 0, working_shape.vertices.vertices.len() as _);
+                let topology = if working_shape.is_path_closed { gl::LINE_LOOP } else { gl::LINE_STRIP };
+                gl::DrawArrays(topology, 0, working_shape.vertices.vertices.len() as _);
             };
 
             let draw_grid = || {
@@ -833,11 +801,11 @@ impl System for EditorSystem {
                 if self.draw_grid_first {
                     draw_grid();
                     draw_cursor();
-                    draw_draft_vertices();
+                    draw_working_shape();
                     draw_hsva_sliders();
                 } else {
                     draw_cursor();
-                    draw_draft_vertices();
+                    draw_working_shape();
                     draw_grid();
                     draw_hsva_sliders();
                 }
