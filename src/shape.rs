@@ -1,5 +1,5 @@
 use std::io;
-use v::{Vec3, Rgba};
+use v::{Vec2, Vec3, Rgba, CubicBezier2, QuadraticBezier2};
 use mesh::{vertex_array, color_mesh::{self, Vertex}};
 use gx::BufferUsage;
 
@@ -12,12 +12,26 @@ pub struct Style {
     pub fill_color: Rgba<f32>,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum PathCmd {
+    Line { end: Vec2<f32> },
+    Cubic { ctrl0: Vec2<f32>, ctrl1: Vec2<f32>, end: Vec2<f32> },
+    Quadratic { ctrl: Vec2<f32>, end: Vec2<f32> },
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Path {
+    pub is_closed: bool,
+    pub start: Vec2<f32>,
+    pub cmds: Vec<PathCmd>,
+}
+
 #[derive(Debug)]
 pub struct Shape {
     pub vertices: ColorVertexArray,
     pub fill_color_strip: ColorVertexArray,
-    pub is_path_closed: bool,
     pub style: Style,
+    pub path: Path,
 }
 
 impl Default for Style {
@@ -27,6 +41,41 @@ impl Default for Style {
             stroke_color: Rgba::black(),
             fill_color: Rgba::magenta(),
         }
+    }
+}
+
+impl Path {
+    pub const DEFAULT_STEPS: u32 = 32;
+    pub fn generate_vertex_positions(&self, steps: u32) -> Vec<Vec2<f32>> {
+        let mut vertices = vec![self.start];
+        for cmd in &self.cmds {
+            match *cmd {
+                PathCmd::Line { end } => vertices.push(end),
+                PathCmd::Quadratic { ctrl, end } => {
+                    let start = *vertices.last().unwrap();
+                    let c = QuadraticBezier2 { start, ctrl, end };
+                    for i in 0..(steps+1) {
+                        let t = i as f32 / steps as f32;
+                        vertices.push(c.evaluate(t));
+                    }
+                },
+                PathCmd::Cubic { ctrl0, ctrl1, end } => {
+                    let start = *vertices.last().unwrap();
+                    let c = CubicBezier2 { start, ctrl0, ctrl1, end };
+                    for i in 0..(steps+1) {
+                        let t = i as f32 / steps as f32;
+                        vertices.push(c.evaluate(t));
+                    }
+                },
+            };
+        }
+        vertices
+    }
+    pub fn generate_vertices(&self, steps: u32, color: Rgba<f32>) -> Vec<Vertex> {
+        self.generate_vertex_positions(steps).into_iter().map(|position| Vertex {
+            position: position.into(),
+            color,
+        }).collect()
     }
 }
 
@@ -46,10 +95,12 @@ impl Shape {
     pub fn new(color_mesh_gl_program: &color_mesh::Program) -> Self {
         let style = Style::default();
         let fill_color_strip = create_fill_color_strip(color_mesh_gl_program, style.fill_color);
+        let path = Path::default();
         let vertices = ColorVertexArray::from_vertices(
-            &color_mesh_gl_program, "Some Shape Vertices", BufferUsage::DynamicDraw, vec![]
+            &color_mesh_gl_program, "Some Shape Vertices", BufferUsage::DynamicDraw,
+            path.generate_vertices(Path::DEFAULT_STEPS, style.stroke_color)
         );
-        Self { style, vertices, fill_color_strip, is_path_closed: false, }
+        Self { style, path, vertices, fill_color_strip, }
     }
     // M = moveto
     // L = lineto
@@ -69,7 +120,7 @@ impl Shape {
             let pos = v.position;
             writeln!(f, "{} {} {}", letter, pos.x, pos.y)?;
         }
-        if self.is_path_closed {
+        if self.path.is_closed {
             writeln!(f, "Z")?;
         }
         Ok(())
@@ -125,6 +176,6 @@ impl Shape {
             vertices,
         );
         let fill_color_strip = create_fill_color_strip(color_mesh_gl_program, style.fill_color);
-        Ok(Self { vertices, fill_color_strip, is_path_closed, style })
+        Ok(Self { vertices, path, fill_color_strip, style })
     }
 }
