@@ -279,8 +279,8 @@ fn create_grid_vertices(color_mesh_gl_program: &color_mesh::Program, size: Exten
 impl EditorSystem {
     const CAMERA_ZOOM_STEP_FACTOR: f32 = 1.1;
     const CAMERA_Z_ROTATION_SPEED_DEGREES: f32 = 90.;
-    const CAMERA_NEAR: f32 = 0.; // It does work for an orthographic camera.
-    const CAMERA_FAR: f32 = 1024.;
+    pub const CAMERA_NEAR: f32 = 0.; // It does work for an orthographic camera.
+    pub const CAMERA_FAR: f32 = 1024.;
 
     pub fn new(color_mesh_gl_program: &color_mesh::Program, text_gl_program: &mesh::text::Program, viewport_size: Extent2<u32>) -> Self {
         let grid_vertices_1 = create_grid_vertices(color_mesh_gl_program, Extent2::new(8, 8), Rgba::white(), Extent2::one());
@@ -636,6 +636,9 @@ impl System for EditorSystem {
         };
     }
     fn on_mouse_button(&mut self, g: &Game, btn: MouseButton) {
+        if !self.is_active {
+            return;
+        }
         match btn.button {
             Sdl2MouseButton::Left => if btn.is_down() {
                 debug!("Editor: Received Left click event");

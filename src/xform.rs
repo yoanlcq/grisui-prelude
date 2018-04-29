@@ -1,4 +1,4 @@
-use v::{self, Vec2, Vec3};
+use v::{self, Vec2, Vec3, Mat4};
 
 pub type Xform3D = v::Transform<f32, f32, f32>;
 
@@ -37,6 +37,9 @@ impl Xform2D {
     }
     pub fn back(&self) -> Vec3<f32> {
         -self.forward()
+    }
+    pub fn model_matrix(&self) -> Mat4<f32> {
+        Mat4::scaling_3d(self.scale).rotated_z(self.rotation_z_radians).translated_3d(self.position)
     }
 }
 

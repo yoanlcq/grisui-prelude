@@ -65,12 +65,13 @@ impl Game {
         let fonts = font::Fonts::from_path(&paths.fonts).unwrap();
         let loaded_scenes = RefCell::new(paths.load_scenes());
         let loaded_shapes = RefCell::new(paths.load_shapes(&color_mesh_gl_program));
+        let viewport_size = platform.canvas_size();
 
         let systems = RefCell::new(vec![
             Box::new(InputSystem) as Box<System>,
             Box::new(PlatformSystem),
-            Box::new(editor::EditorSystem::new(&color_mesh_gl_program, &text_gl_program, platform.canvas_size())),
-            Box::new(gameplay::GameplaySystem::new()),
+            Box::new(editor::EditorSystem::new(&color_mesh_gl_program, &text_gl_program, viewport_size)),
+            Box::new(gameplay::GameplaySystem::new(viewport_size)),
             Box::new(QuitSystem),
         ]);
 
