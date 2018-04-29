@@ -703,8 +703,8 @@ impl System for EditorSystem {
             let draw_working_shape = || if let Some(working_shape) = g.loaded_shapes.borrow().get(&self.working_shape_name) {
                 let mvp = self.camera.view_proj_matrix();
                 g.color_mesh_gl_program.set_uniform_mvp(&mvp);
-                gl::PointSize(8.);
-                gl::LineWidth(8.);
+                gl::PointSize(working_shape.style.stroke_thickness);
+                gl::LineWidth(working_shape.style.stroke_thickness);
                 gl::BindVertexArray(working_shape.vertices.vao().gl_id());
                 gl::DrawArrays(gl::POINTS, 0, working_shape.vertices.vertices.len() as _);
                 let topology = if working_shape.is_path_closed { gl::LINE_LOOP } else { gl::LINE_STRIP };

@@ -1,3 +1,13 @@
+Avant de rendre :
+- Shapes
+  - stroke_thickness
+  - stroke_color
+  - fill_color
+  - Faire tout en courbes de Bézier
+- Avoir un shader de point sprites ronds;
+- Pouvoir regarder dans la scène avec la souris (parallax);
+
+
 Triage:
 - Undo stack;
 - Scene management;
