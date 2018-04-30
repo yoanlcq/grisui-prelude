@@ -261,7 +261,7 @@ assert_eq_size!(particle_size; ParticleRenderingVertex, [f32; 8]);
 
 impl ParticleRenderingProgram {
 
-    const VS: &'static [u8] = b"
+    pub const VS: &'static [u8] = b"
 #version 130
 
 uniform mat4 u_mvp;
