@@ -115,38 +115,66 @@ impl Shape {
         writeln!(f, "stroke_thickness {}", stroke_thickness)?;
         writeln!(f, "stroke_color {} {} {} {}", stroke_color.r, stroke_color.g, stroke_color.b, stroke_color.a)?;
         writeln!(f, "fill_color {} {} {} {}", fill_color.r, fill_color.g, fill_color.b, fill_color.a)?;
-        for (i, v) in self.vertices.vertices.iter().enumerate() {
-            let letter = if i == 0 { 'M' } else { 'L' };
-            let pos = v.position;
-            writeln!(f, "{} {} {}", letter, pos.x, pos.y)?;
+        writeln!(f, "M {} {}", self.path.start.x, self.path.start.y)?;
+        for cmd in self.path.cmds.iter() {
+            match *cmd {
+                PathCmd::Line { end } => writeln!(f, "L {} {}", end.x, end.y)?,
+                PathCmd::Quadratic { ctrl, end } => writeln!(f, "Q {} {} {} {}", ctrl.x, ctrl.y, end.x, end.y)?,
+                PathCmd::Cubic { ctrl0, ctrl1, end } => writeln!(f, "C {} {} {} {} {} {}", ctrl0.x, ctrl0.y, ctrl1.x, ctrl1.y, end.x, end.y)?,
+            };
         }
         if self.path.is_closed {
             writeln!(f, "Z")?;
         }
         Ok(())
     }
+
     pub fn load(color_mesh_gl_program: &color_mesh::Program, f: &mut io::Read) -> io::Result<Self> {
         let data = {
             let mut buf = String::new();
-            f.read_to_string(&mut buf).unwrap();
+            f.read_to_string(&mut buf)?;
             buf
         };
 
-        let mut vertices = vec![];
-        let mut is_path_closed = false;
+        let mut path = Path::default();
         let mut style = Style::default();
 
         let mut words = data.split_whitespace();
         while let Some(cmd) = words.next() {
             match cmd {
-                "M" | "L" => {
+                "M" => {
+                    // XXX: Assuming there's only one 'M' command in the file, ever.
                     let x: f32 = words.next().unwrap().parse().unwrap();
                     let y: f32 = words.next().unwrap().parse().unwrap();
-                    let position = Vec3 { x, y, z: 0. };
-                    let color = Rgba::yellow();
-                    vertices.push(Vertex { position, color });
+                    path.start = Vec2 { x, y };
                 },
-                "Z" | "z" => is_path_closed = true,
+                "L" => {
+                    let x: f32 = words.next().unwrap().parse().unwrap();
+                    let y: f32 = words.next().unwrap().parse().unwrap();
+                    path.cmds.push(PathCmd::Line { end: Vec2 { x, y } });
+                },
+                "Q" => {
+                    let mut end = Vec2::zero();
+                    let mut ctrl = Vec2::zero();
+                    ctrl.x = words.next().unwrap().parse().unwrap();
+                    ctrl.y = words.next().unwrap().parse().unwrap();
+                    end.x = words.next().unwrap().parse().unwrap();
+                    end.y = words.next().unwrap().parse().unwrap();
+                    path.cmds.push(PathCmd::Quadratic { ctrl, end });
+                },
+                "C" => {
+                    let mut end = Vec2::zero();
+                    let mut ctrl0 = Vec2::zero();
+                    let mut ctrl1 = Vec2::zero();
+                    ctrl0.x = words.next().unwrap().parse().unwrap();
+                    ctrl0.y = words.next().unwrap().parse().unwrap();
+                    ctrl1.x = words.next().unwrap().parse().unwrap();
+                    ctrl1.y = words.next().unwrap().parse().unwrap();
+                    end.x = words.next().unwrap().parse().unwrap();
+                    end.y = words.next().unwrap().parse().unwrap();
+                    path.cmds.push(PathCmd::Cubic { ctrl0, ctrl1, end });
+                },
+                "Z" | "z" => path.is_closed = true,
                 "stroke_thickness" => style.stroke_thickness = words.next().unwrap().parse().unwrap(),
                 "stroke_color" => {
                     let r: f32 = words.next().unwrap().parse().unwrap();
@@ -166,16 +194,12 @@ impl Shape {
             };
         }
 
-        // NOTE: Do this last; "stroke_color" might be present last in the file.
-        for v in &mut vertices {
-            v.color = style.stroke_color;
-        }
-
         let vertices = ColorVertexArray::from_vertices(
             &color_mesh_gl_program, "Some Shape Vertices", BufferUsage::DynamicDraw,
-            vertices,
+            path.generate_vertices(Path::DEFAULT_STEPS, style.stroke_color)
         );
         let fill_color_strip = create_fill_color_strip(color_mesh_gl_program, style.fill_color);
-        Ok(Self { vertices, path, fill_color_strip, style })
+
+        Ok(Self { path, style, vertices, fill_color_strip, })
     }
 }

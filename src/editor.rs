@@ -346,7 +346,6 @@ impl EditorSystem {
 
     fn add_vertex_at_current_mouse_position(&mut self, g: &Game) {
         debug_assert!(self.is_active);
-        debug!("Editor: Adding vertex at current mouse position");
         let mut loaded_shapes = g.loaded_shapes.borrow_mut();
         let working_shape = match loaded_shapes.get_mut(&self.working_shape_name) {
             Some(s) => s,
@@ -355,7 +354,7 @@ impl EditorSystem {
                 return;
             },
         };
-        if working_shape.is_path_closed {
+        if working_shape.path.is_closed {
             return;
         }
         if let Some(pos) = g.input.mouse_position() {
@@ -376,7 +375,7 @@ impl EditorSystem {
                 return;
             },
         };
-        working_shape.is_path_closed = true;
+        working_shape.path.is_closed = true;
     }
     fn toggle_select_all(&mut self, _g: &Game) {
         debug_assert!(self.is_active);
@@ -394,7 +393,7 @@ impl EditorSystem {
         };
         working_shape.vertices.vertices.clear();
         working_shape.vertices.update_and_resize_vbo();
-        working_shape.is_path_closed = false;
+        working_shape.path.is_closed = false;
     }
     fn execute_current_command(&mut self, g: &Game) {
         let cmd = self.command_text.string.clone();
@@ -443,7 +442,7 @@ impl EditorSystem {
         let mut shape = Shape::new(&g.color_mesh_gl_program);
         {
             let source_shape = &g.loaded_shapes.borrow()[&self.working_shape_name];
-            shape.is_path_closed = source_shape.is_path_closed;
+            shape.path.is_closed = source_shape.path.is_closed;
             shape.vertices.vertices = source_shape.vertices.vertices.clone();
         }
         shape.vertices.update_and_resize_vbo();
@@ -641,7 +640,6 @@ impl System for EditorSystem {
         }
         match btn.button {
             Sdl2MouseButton::Left => if btn.is_down() {
-                debug!("Editor: Received Left click event");
                 self.add_vertex_at_current_mouse_position(g);
             },
             Sdl2MouseButton::Middle => {},
@@ -707,7 +705,7 @@ impl System for EditorSystem {
                 gl::LineWidth(working_shape.style.stroke_thickness);
                 gl::BindVertexArray(working_shape.vertices.vao().gl_id());
                 gl::DrawArrays(gl::POINTS, 0, working_shape.vertices.vertices.len() as _);
-                let topology = if working_shape.is_path_closed { gl::LINE_LOOP } else { gl::LINE_STRIP };
+                let topology = if working_shape.path.is_closed { gl::LINE_LOOP } else { gl::LINE_STRIP };
                 gl::DrawArrays(topology, 0, working_shape.vertices.vertices.len() as _);
             };
 

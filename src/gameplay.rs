@@ -2,7 +2,7 @@ use gl;
 use system::*;
 use camera::OrthoCamera2D;
 use gx::Object;
-use shape::{Shape, Style};
+use shape::{self, Shape, Style};
 use scene::ShapeInstance;
 use v::Mat4;
 
@@ -72,12 +72,14 @@ impl System for GameplaySystem {
                 } = shape_instance;
                 
                 let &Shape {
-                    is_path_closed,
+                    path: shape::Path {
+                        is_closed, start: _, cmds: _,
+                    },
+                    style: Style {
+                        stroke_thickness, stroke_color: _, fill_color: _,
+                    },
                     ref vertices,
                     ref fill_color_strip,
-                    style: Style {
-                        stroke_thickness, stroke_color: _, fill_color,
-                    },
                 } = &g.loaded_shapes.borrow()[source_shape_name];
 
                 // Set MVP once, first.
@@ -92,7 +94,7 @@ impl System for GameplaySystem {
                 {
                     gl::PointSize(stroke_thickness);
                     gl::LineWidth(stroke_thickness);
-                    let topology = if is_path_closed { gl::LINE_LOOP } else { gl::LINE_STRIP };
+                    let topology = if is_closed { gl::LINE_LOOP } else { gl::LINE_STRIP };
                     gl::DrawArrays(gl::POINTS, 0, vertices.vertices.len() as _);
                     gl::DrawArrays(topology, 0, vertices.vertices.len() as _);
                 }
