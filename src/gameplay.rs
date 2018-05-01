@@ -109,6 +109,7 @@ pub unsafe fn draw_shape_instance(g: &Game, camera: &OrthoCamera2D, shape_instan
     {
         gl::Enable(gl::STENCIL_TEST);
         gl::Disable(gl::DEPTH_TEST);
+        gl::Disable(gl::CULL_FACE);
 
         gl::ClearStencil(0x0); // Set clear value
         gl::Clear(gl::STENCIL_BUFFER_BIT);
@@ -131,6 +132,7 @@ pub unsafe fn draw_shape_instance(g: &Game, camera: &OrthoCamera2D, shape_instan
         gl::BindVertexArray(gradient_fill_strip.vao().gl_id());
         gl::DrawArrays(gl::TRIANGLE_STRIP, 0, gradient_fill_strip.vertices.len() as _);
 
+        gl::Enable(gl::CULL_FACE);
         gl::Enable(gl::DEPTH_TEST);
         gl::Disable(gl::STENCIL_TEST);
     }
