@@ -1,1 +1,1 @@
-Don't mind this; This is the source code for two school projects to be finished soon.
+An editor for a potential 2D Point & Click, Vector-Art-style game.
