@@ -1,9 +1,5 @@
 Avant de rendre :
-- Avoir des gradients;
-- Avoir un mode toggle render points/lines.
-- Shapes
-  - Faire tout en courbes de Bézier;
-  - S'assurer que les shapes sont rendues avec le bon depth;
+- Faire tout en courbes de Bézier;
 - Pouvoir regarder dans la scène avec la souris (parallax);
 
 

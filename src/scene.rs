@@ -35,6 +35,18 @@ pub struct Scene {
 }
 
 impl Scene {
+    pub fn sort_shape_instances_by_z(&mut self) {
+        self.shape_instances.sort_by(|a, b| {
+            use ::std::cmp::Ordering;
+            let az = a.xform.position.z;
+            let bz = b.xform.position.z;
+            if az > bz {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        });
+    }
     pub fn save(&self, f: &mut io::Write) -> io::Result<()> {
         for instance in self.shape_instances.iter() {
             let &ShapeInstance {

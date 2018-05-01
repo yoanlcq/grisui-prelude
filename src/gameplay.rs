@@ -65,8 +65,13 @@ impl System for GameplaySystem {
 
             gl::UseProgram(g.color_mesh_gl_program.program().gl_id());
 
-            for shape_instance in g.loaded_scenes.borrow()[&self.current_scene_name].shape_instances.iter() {
-                draw_shape_instance(g, &self.camera, shape_instance);
+            {
+                let mut scenes = g.loaded_scenes.borrow_mut();
+                let scene = scenes.get_mut(&self.current_scene_name).unwrap();
+                scene.sort_shape_instances_by_z();
+                for shape_instance in scene.shape_instances.iter() {
+                    draw_shape_instance(g, &self.camera, shape_instance);
+                }
             }
 
             gl::BindVertexArray(0);
@@ -74,6 +79,9 @@ impl System for GameplaySystem {
         }
     }
 }
+
+pub static mut DO_DRAW_SHAPE_STROKE_LINES: bool = true;
+pub static mut DO_DRAW_SHAPE_STROKE_POINTS: bool = true;
 
 pub unsafe fn draw_shape_instance(g: &Game, camera: &OrthoCamera2D, shape_instance: &ShapeInstance) {
     let &ShapeInstance {
@@ -132,16 +140,19 @@ pub unsafe fn draw_shape_instance(g: &Game, camera: &OrthoCamera2D, shape_instan
 
     // Stroke
     {
+        let topology = if is_closed { gl::LINE_LOOP } else { gl::LINE_STRIP };
+
         gl::BindVertexArray(vertices.vao().gl_id());
         gl::PointSize(stroke_thickness);
         gl::LineWidth(stroke_thickness);
-        let topology = if is_closed { gl::LINE_LOOP } else { gl::LINE_STRIP };
-        g.color_mesh_gl_program.set_uniform_is_drawing_points(true);
-        gl::DrawArrays(gl::POINTS, 0, vertices.vertices.len() as _);
-        g.color_mesh_gl_program.set_uniform_is_drawing_points(false);
-        gl::DrawArrays(topology, 0, vertices.vertices.len() as _);
+        if DO_DRAW_SHAPE_STROKE_POINTS {
+            g.color_mesh_gl_program.set_uniform_is_drawing_points(true);
+            gl::DrawArrays(gl::POINTS, 0, vertices.vertices.len() as _);
+            g.color_mesh_gl_program.set_uniform_is_drawing_points(false);
+        }
+        if DO_DRAW_SHAPE_STROKE_LINES {
+            gl::DrawArrays(topology, 0, vertices.vertices.len() as _);
+        }
     }
-
-
 }
 

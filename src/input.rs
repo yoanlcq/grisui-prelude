@@ -75,6 +75,16 @@ impl System for InputSystem {
                     },
                 });
             },
+            Keycode::F6 => if key.is_down() {
+                unsafe {
+                    ::gameplay::DO_DRAW_SHAPE_STROKE_LINES = !::gameplay::DO_DRAW_SHAPE_STROKE_LINES;
+                }
+            },
+            Keycode::F7 => if key.is_down() {
+                unsafe {
+                    ::gameplay::DO_DRAW_SHAPE_STROKE_POINTS = !::gameplay::DO_DRAW_SHAPE_STROKE_POINTS;
+                }
+            },
             _ => (),
         };
     }
