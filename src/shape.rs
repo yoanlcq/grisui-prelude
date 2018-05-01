@@ -1,15 +1,20 @@
 use std::io;
+use std::ops::Range;
 use v::{Vec2, Vec3, Rgba, CubicBezier2, QuadraticBezier2};
 use mesh::{vertex_array, color_mesh::{self, Vertex}};
 use gx::BufferUsage;
 
 type ColorVertexArray = vertex_array::VertexArray<color_mesh::Program>;
 
+pub type GradientEnd = Vertex;
+pub type Gradient = Range<GradientEnd>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Style {
     pub stroke_thickness: f32,
     pub stroke_color: Rgba<f32>,
     pub fill_color: Rgba<f32>,
+    pub fill_gradient: Gradient,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -29,17 +34,21 @@ pub struct Path {
 #[derive(Debug)]
 pub struct Shape {
     pub vertices: ColorVertexArray,
-    pub fill_color_strip: ColorVertexArray,
+    pub solid_fill_strip: ColorVertexArray,
+    pub gradient_fill_strip: ColorVertexArray,
     pub style: Style,
     pub path: Path,
 }
 
 impl Default for Style {
     fn default() -> Self {
+        let grad_start = GradientEnd { position: -Vec3::unit_x(), color: Rgba::green(), };
+        let grad_end   = GradientEnd { position:  Vec3::unit_x(), color: Rgba::magenta(), };
         Self {
             stroke_thickness: 2.,
             stroke_color: Rgba::black(),
-            fill_color: Rgba::magenta(),
+            fill_color: Rgba::yellow(),
+            fill_gradient: grad_start .. grad_end,
         }
     }
 }
@@ -79,7 +88,7 @@ impl Path {
     }
 }
 
-fn create_fill_color_strip(color_mesh_gl_program: &color_mesh::Program, color: Rgba<f32>) -> ColorVertexArray {
+fn create_solid_fill_strip(color_mesh_gl_program: &color_mesh::Program, color: Rgba<f32>) -> ColorVertexArray {
     ColorVertexArray::from_vertices(
         &color_mesh_gl_program, "Some Shape Fill Color Strip", BufferUsage::DynamicDraw,
         vec![
@@ -91,16 +100,57 @@ fn create_fill_color_strip(color_mesh_gl_program: &color_mesh::Program, color: R
     )
 }
 
+fn create_gradient_fill_strip(color_mesh_gl_program: &color_mesh::Program, gradient: &Gradient) -> ColorVertexArray {
+    let &Gradient { ref start, ref end } = gradient;
+    let b = 1024_f32;
+    let s = 0.5_f32;
+    let mut vertices = [
+        (Vec3::new(-b,  b, 0.), start.color),
+        (Vec3::new(-b, -b, 0.), start.color),
+        (Vec3::new(-s,  b, 0.), start.color),
+        (Vec3::new(-s, -b, 0.), start.color),
+        (Vec3::new( s,  b, 0.), end.color),
+        (Vec3::new( s, -b, 0.), end.color),
+        (Vec3::new( b,  b, 0.), end.color),
+        (Vec3::new( b, -b, 0.), end.color),
+    ];
+
+    let (mut p0, mut p1) = (start.position, end.position);
+    p0.z = 0.;
+    p1.z = 0.;
+    let dir = (p1 - p0).normalized();
+    let rotation_z = dir.y.atan2(dir.x);
+    let position = (p0 + p1) / 2.;
+    let scale = Vec3::distance(p0, p1);
+    let mut scale = Vec3::broadcast(scale);
+    scale.z = 1.;
+    let m = ::v::Mat4::from(::v::Transform {
+        position, scale,
+        orientation: ::v::Quaternion::rotation_z(rotation_z),
+    });
+
+    for v in &mut vertices {
+        v.0 = m.mul_point(v.0);
+        v.0.z = 0.;
+    }
+
+    ColorVertexArray::from_vertices(
+        &color_mesh_gl_program, "Some Shape Fill Gradient Strip", BufferUsage::DynamicDraw,
+        vertices.iter().map(|&(position, color)| Vertex { position, color }).collect()
+    )
+}
+
 impl Shape {
     pub fn new(color_mesh_gl_program: &color_mesh::Program) -> Self {
         let style = Style::default();
-        let fill_color_strip = create_fill_color_strip(color_mesh_gl_program, style.fill_color);
+        let solid_fill_strip = create_solid_fill_strip(color_mesh_gl_program, style.fill_color);
+        let gradient_fill_strip = create_gradient_fill_strip(color_mesh_gl_program, &style.fill_gradient);
         let path = Path::default();
         let vertices = ColorVertexArray::from_vertices(
             &color_mesh_gl_program, "Some Shape Vertices", BufferUsage::DynamicDraw,
             path.generate_vertices(Path::DEFAULT_STEPS, style.stroke_color)
         );
-        Self { style, path, vertices, fill_color_strip, }
+        Self { style, path, vertices, solid_fill_strip, gradient_fill_strip, }
     }
     // M = moveto
     // L = lineto
@@ -110,11 +160,27 @@ impl Shape {
     // Note: All of the commands above can also be expressed with lower letters. Capital letters means absolutely positioned, lower cases means relatively positioned.
     pub fn save(&self, f: &mut io::Write) -> io::Result<()> {
         let &Style {
-            stroke_thickness, stroke_color, fill_color
+            stroke_thickness, stroke_color, fill_color, ref fill_gradient,
         } = &self.style;
         writeln!(f, "stroke_thickness {}", stroke_thickness)?;
         writeln!(f, "stroke_color {} {} {} {}", stroke_color.r, stroke_color.g, stroke_color.b, stroke_color.a)?;
         writeln!(f, "fill_color {} {} {} {}", fill_color.r, fill_color.g, fill_color.b, fill_color.a)?;
+        {
+            let Rgba { r, g, b, a } = fill_gradient.start.color;
+            writeln!(f, "fill_gradient_start_color {} {} {} {}", r, g, b, a)?;
+        }
+        {
+            let Rgba { r, g, b, a } = fill_gradient.end.color;
+            writeln!(f, "fill_gradient_end_color {} {} {} {}", r, g, b, a)?;
+        }
+        {
+            let Vec3 { x, y, z: _ } = fill_gradient.start.position;
+            writeln!(f, "fill_gradient_start_position {} {}", x, y)?;
+        }
+        {
+            let Vec3 { x, y, z: _ } = fill_gradient.end.position;
+            writeln!(f, "fill_gradient_end_position {} {}", x, y)?;
+        }
         writeln!(f, "M {} {}", self.path.start.x, self.path.start.y)?;
         for cmd in self.path.cmds.iter() {
             match *cmd {
@@ -190,7 +256,31 @@ impl Shape {
                     let a: f32 = words.next().unwrap().parse().unwrap();
                     style.fill_color = Rgba { r, g, b, a };
                 },
-                _ => unimplemented!{},
+                "fill_gradient_start_color" => {
+                    let r: f32 = words.next().unwrap().parse().unwrap();
+                    let g: f32 = words.next().unwrap().parse().unwrap();
+                    let b: f32 = words.next().unwrap().parse().unwrap();
+                    let a: f32 = words.next().unwrap().parse().unwrap();
+                    style.fill_gradient.start.color = Rgba { r, g, b, a };
+                },
+                "fill_gradient_end_color" => {
+                    let r: f32 = words.next().unwrap().parse().unwrap();
+                    let g: f32 = words.next().unwrap().parse().unwrap();
+                    let b: f32 = words.next().unwrap().parse().unwrap();
+                    let a: f32 = words.next().unwrap().parse().unwrap();
+                    style.fill_gradient.end.color = Rgba { r, g, b, a };
+                },
+                "fill_gradient_start_position" => {
+                    let x: f32 = words.next().unwrap().parse().unwrap();
+                    let y: f32 = words.next().unwrap().parse().unwrap();
+                    style.fill_gradient.start.position = Vec2 { x, y }.into();
+                },
+                "fill_gradient_end_position" => {
+                    let x: f32 = words.next().unwrap().parse().unwrap();
+                    let y: f32 = words.next().unwrap().parse().unwrap();
+                    style.fill_gradient.end.position = Vec2 { x, y }.into();
+                },
+                whoops @ _ => panic!("Unknown command `{}`", whoops),
             };
         }
 
@@ -198,8 +288,9 @@ impl Shape {
             &color_mesh_gl_program, "Some Shape Vertices", BufferUsage::DynamicDraw,
             path.generate_vertices(Path::DEFAULT_STEPS, style.stroke_color)
         );
-        let fill_color_strip = create_fill_color_strip(color_mesh_gl_program, style.fill_color);
+        let solid_fill_strip = create_solid_fill_strip(color_mesh_gl_program, style.fill_color);
+        let gradient_fill_strip = create_gradient_fill_strip(color_mesh_gl_program, &style.fill_gradient);
 
-        Ok(Self { path, style, vertices, fill_color_strip, })
+        Ok(Self { path, style, vertices, solid_fill_strip, gradient_fill_strip, })
     }
 }

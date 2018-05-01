@@ -85,7 +85,7 @@ impl Scene {
                     s.x = words.next().unwrap().parse().unwrap();
                     s.y = words.next().unwrap().parse().unwrap();
                 },
-                _ => unimplemented!{},
+                whoops @ _ => panic!("Unknown command `{}`", whoops),
             }
         }
         Ok(scene)

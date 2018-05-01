@@ -10,6 +10,7 @@ use super::{ProgramAttribs, Attrib};
 pub struct Program {
     program: gx::Program,
     u_mvp: GLint,
+    u_is_drawing_points: GLint,
     a_position: GLuint,
     a_color: GLuint,
 }
@@ -64,9 +65,16 @@ void main() {
 
     const FS: &'static [u8] = b"
 #version 130
+uniform bool u_is_drawing_points;
 in vec4 v_color;
 out vec4 f_color;
 void main() {
+    if(u_is_drawing_points) {
+        vec2 from_center = gl_PointCoord - vec2(0.5f);
+        float d = length(from_center);
+        if(d > 0.5f)
+            discard;
+    }
     f_color = v_color;
 }
 \0";
@@ -103,15 +111,21 @@ void main() {
         let a_position = program.attrib_location(b"a_position\0").unwrap() as _;
         let a_color = program.attrib_location(b"a_color\0").unwrap() as _;
         let u_mvp = program.uniform_location(b"u_mvp\0").unwrap();
+        let u_is_drawing_points = program.uniform_location(b"u_is_drawing_points\0").unwrap();
 
         Self {
-            program, u_mvp, a_position, a_color,
+            program, u_mvp, u_is_drawing_points, a_position, a_color,
         }
     }
     pub fn set_uniform_mvp(&self, m: &Mat4<f32>) {
         let transpose = m.gl_should_transpose() as GLboolean;
         unsafe {
             gl::UniformMatrix4fv(self.u_mvp, 1, transpose, m.cols[0].as_ptr());
+        }
+    }
+    pub fn set_uniform_is_drawing_points(&self, yes: bool) {
+        unsafe {
+            gl::Uniform1i(self.u_is_drawing_points, yes as _);
         }
     }
 }

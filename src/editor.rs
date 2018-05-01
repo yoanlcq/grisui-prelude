@@ -293,8 +293,10 @@ impl EditorSystem {
             &color_mesh_gl_program, "Cursor Vertices", BufferUsage::DynamicDraw,
             vec![
                 Vertex { position: Vec3::zero(), color: Rgba::red(), },
-                Vertex { position: Vec3::unit_x(), color: Rgba::green(), },
-                Vertex { position: Vec3::unit_y(), color: Rgba::blue(), },
+                /*
+                Vertex { position: Vec3::unit_x() / 10., color: Rgba::green(), },
+                Vertex { position: Vec3::unit_y() / 10., color: Rgba::blue(), },
+                */
             ]
         );
         let text = Text::new(text_gl_program, "Editor Text");
@@ -675,9 +677,14 @@ impl System for EditorSystem {
         self.hsva_sliders.update_colors_gl();
         self.hsva_sliders.update_cursor_lines_gl();
 
-        self.text.string = format!("{:?}", self.hsva_sliders.hsva);
+        self.text.string.clear();
+        //self.text.string = format!("{:?}", self.hsva_sliders.hsva);
         self.text.update_gl(&g.fonts.fonts[&self.font_id]);
-        self.cursor_vertices.vertices[0].color = rgba_from_hsva(self.hsva_sliders.hsva);
+
+        let cursor_color = rgba_from_hsva(self.hsva_sliders.hsva);
+        for v in self.cursor_vertices.vertices.iter_mut() {
+            v.color = cursor_color;
+        }
         self.cursor_vertices.update_vbo_range(0..1);
     }
     fn draw(&mut self, g: &Game, gfx_interp: f64) {
@@ -692,22 +699,21 @@ impl System for EditorSystem {
                     self.camera.view_proj_matrix() * Mat4::translation_3d(w)
                 };
                 g.color_mesh_gl_program.set_uniform_mvp(&mvp);
-                gl::PointSize(8.);
+                gl::PointSize(12.);
                 gl::BindVertexArray(self.cursor_vertices.vao().gl_id());
+                g.color_mesh_gl_program.set_uniform_is_drawing_points(true);
                 gl::DrawArrays(gl::POINTS, 0, self.cursor_vertices.vertices.len() as _);
+                /*
+                g.color_mesh_gl_program.set_uniform_is_drawing_points(false);
                 gl::DrawArrays(gl::TRIANGLES, 0, self.cursor_vertices.vertices.len() as _);
+                */
             };
 
-            let draw_working_shape = || if let Some(working_shape) = g.loaded_shapes.borrow().get(&self.working_shape_name) {
-                let mvp = self.camera.view_proj_matrix();
-                g.color_mesh_gl_program.set_uniform_mvp(&mvp);
-                gl::PointSize(working_shape.style.stroke_thickness);
-                gl::LineWidth(working_shape.style.stroke_thickness);
-                gl::BindVertexArray(working_shape.vertices.vao().gl_id());
-                gl::DrawArrays(gl::POINTS, 0, working_shape.vertices.vertices.len() as _);
-                let topology = if working_shape.path.is_closed { gl::LINE_LOOP } else { gl::LINE_STRIP };
-                gl::DrawArrays(topology, 0, working_shape.vertices.vertices.len() as _);
-            };
+            let draw_working_shape = || ::gameplay::draw_shape_instance(g, &self.camera, &::scene::ShapeInstance {
+                source_shape_name: self.working_shape_name.clone(),
+                name: "Editor Shape".to_owned(),
+                xform: ::xform::Xform2D::default(),
+            });
 
             let draw_grid = || {
                 if self.do_draw_grid {
@@ -720,6 +726,7 @@ impl System for EditorSystem {
                         self.camera.view_proj_matrix() * Mat4::translation_3d(w)
                     };
                     g.color_mesh_gl_program.set_uniform_mvp(&mvp);
+                    g.color_mesh_gl_program.set_uniform_is_drawing_points(false);
                     gl::LineWidth(1.);
 
                     gl::BindVertexArray(self.grid_vertices_01.vao().gl_id());
@@ -730,6 +737,7 @@ impl System for EditorSystem {
 
                     gl::PointSize(8.);
                     gl::BindVertexArray(self.grid_origin_vertices.vao().gl_id());
+                    g.color_mesh_gl_program.set_uniform_is_drawing_points(true);
                     gl::DrawArrays(gl::POINTS, 0, self.grid_origin_vertices.vertices.len() as _);
 
                     gl::DepthMask(gl::TRUE);
@@ -746,6 +754,7 @@ impl System for EditorSystem {
                     Mat4::<f32>::translation_3d(t) * s
                 };
                 g.color_mesh_gl_program.set_uniform_mvp(&mvp);
+                g.color_mesh_gl_program.set_uniform_is_drawing_points(false);
                 let strips = &[
                     &self.hsva_sliders.strips.h,
                     &self.hsva_sliders.strips.s,
