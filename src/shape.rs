@@ -19,6 +19,7 @@ pub struct Style {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum PathCmd {
+    Start(Vec2<f32>),
     Line { end: Vec2<f32> },
     Cubic { ctrl0: Vec2<f32>, ctrl1: Vec2<f32>, end: Vec2<f32> },
     Quadratic { ctrl: Vec2<f32>, end: Vec2<f32> },
@@ -27,7 +28,6 @@ pub enum PathCmd {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Path {
     pub is_closed: bool,
-    pub start: Vec2<f32>,
     pub cmds: Vec<PathCmd>,
 }
 
@@ -56,9 +56,10 @@ impl Default for Style {
 impl Path {
     pub const DEFAULT_STEPS: u32 = 32;
     pub fn generate_vertex_positions(&self, steps: u32) -> Vec<Vec2<f32>> {
-        let mut vertices = vec![self.start];
+        let mut vertices = vec![];
         for cmd in &self.cmds {
             match *cmd {
+                PathCmd::Start(start) => vertices.push(start),
                 PathCmd::Line { end } => vertices.push(end),
                 PathCmd::Quadratic { ctrl, end } => {
                     let start = *vertices.last().unwrap();
@@ -88,19 +89,23 @@ impl Path {
     }
 }
 
+fn create_solid_fill_strip_vertices(color: Rgba<f32>) -> Vec<Vertex> {
+    vec![
+        Vertex { position: Vec3::new(-1.,  1., 0.), color, },
+        Vertex { position: Vec3::new(-1., -1., 0.), color, },
+        Vertex { position: Vec3::new( 1.,  1., 0.), color, },
+        Vertex { position: Vec3::new( 1., -1., 0.), color, },
+    ]
+}
+
 fn create_solid_fill_strip(color_mesh_gl_program: &color_mesh::Program, color: Rgba<f32>) -> ColorVertexArray {
     ColorVertexArray::from_vertices(
         &color_mesh_gl_program, "Some Shape Fill Color Strip", BufferUsage::DynamicDraw,
-        vec![
-            Vertex { position: Vec3::new(-1.,  1., 0.), color, },
-            Vertex { position: Vec3::new(-1., -1., 0.), color, },
-            Vertex { position: Vec3::new( 1.,  1., 0.), color, },
-            Vertex { position: Vec3::new( 1., -1., 0.), color, },
-        ]
+        create_solid_fill_strip_vertices(color)
     )
 }
 
-fn create_gradient_fill_strip(color_mesh_gl_program: &color_mesh::Program, gradient: &Gradient) -> ColorVertexArray {
+fn create_gradient_fill_strip_vertices(gradient: &Gradient) -> Vec<Vertex> {
     let &Gradient { ref start, ref end } = gradient;
     let b = 1024_f32;
     let s = 0.5_f32;
@@ -134,13 +139,30 @@ fn create_gradient_fill_strip(color_mesh_gl_program: &color_mesh::Program, gradi
         v.0.z = 0.;
     }
 
+    vertices.iter().map(|&(position, color)| Vertex { position, color }).collect()
+}
+
+fn create_gradient_fill_strip(color_mesh_gl_program: &color_mesh::Program, gradient: &Gradient) -> ColorVertexArray {
     ColorVertexArray::from_vertices(
         &color_mesh_gl_program, "Some Shape Fill Gradient Strip", BufferUsage::DynamicDraw,
-        vertices.iter().map(|&(position, color)| Vertex { position, color }).collect()
+        create_gradient_fill_strip_vertices(gradient)
     )
 }
 
 impl Shape {
+    pub fn update_vertices_gl(&mut self) {
+        self.vertices.vertices = self.path.generate_vertices(Path::DEFAULT_STEPS, self.style.stroke_color);
+        self.vertices.update_and_resize_vbo();
+    }
+    pub fn update_solid_fill_strip_gl(&mut self) {
+        self.solid_fill_strip.vertices = create_solid_fill_strip_vertices(self.style.fill_color);
+        self.solid_fill_strip.update_and_resize_vbo();
+    }
+    pub fn update_gradient_fill_strip_gl(&mut self) {
+        self.gradient_fill_strip.vertices = create_gradient_fill_strip_vertices(&self.style.fill_gradient);
+        self.gradient_fill_strip.update_and_resize_vbo();
+    }
+
     pub fn new(color_mesh_gl_program: &color_mesh::Program) -> Self {
         let style = Style::default();
         let solid_fill_strip = create_solid_fill_strip(color_mesh_gl_program, style.fill_color);
@@ -181,9 +203,9 @@ impl Shape {
             let Vec3 { x, y, z: _ } = fill_gradient.end.position;
             writeln!(f, "fill_gradient_end_position {} {}", x, y)?;
         }
-        writeln!(f, "M {} {}", self.path.start.x, self.path.start.y)?;
         for cmd in self.path.cmds.iter() {
             match *cmd {
+                PathCmd::Start(p) => writeln!(f, "M {} {}", p.x, p.y)?,
                 PathCmd::Line { end } => writeln!(f, "L {} {}", end.x, end.y)?,
                 PathCmd::Quadratic { ctrl, end } => writeln!(f, "Q {} {} {} {}", ctrl.x, ctrl.y, end.x, end.y)?,
                 PathCmd::Cubic { ctrl0, ctrl1, end } => writeln!(f, "C {} {} {} {} {} {}", ctrl0.x, ctrl0.y, ctrl1.x, ctrl1.y, end.x, end.y)?,
@@ -212,7 +234,7 @@ impl Shape {
                     // XXX: Assuming there's only one 'M' command in the file, ever.
                     let x: f32 = words.next().unwrap().parse().unwrap();
                     let y: f32 = words.next().unwrap().parse().unwrap();
-                    path.start = Vec2 { x, y };
+                    path.cmds.push(PathCmd::Start(Vec2 { x, y }));
                 },
                 "L" => {
                     let x: f32 = words.next().unwrap().parse().unwrap();

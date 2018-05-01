@@ -1,8 +1,3 @@
-Avant de rendre :
-- Faire tout en courbes de Bézier;
-- Pouvoir regarder dans la scène avec la souris (parallax);
-
-
 Triage:
 - Undo stack;
 - Scene management;

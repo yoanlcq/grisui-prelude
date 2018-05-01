@@ -4,7 +4,6 @@ use camera::OrthoCamera2D;
 use gx::Object;
 use shape::{self, Shape, Style};
 use scene::ShapeInstance;
-use v::Mat4;
 
 #[derive(Debug)]
 pub struct GameplaySystem {
@@ -90,7 +89,7 @@ pub unsafe fn draw_shape_instance(g: &Game, camera: &OrthoCamera2D, shape_instan
     
     let &Shape {
         path: shape::Path {
-            is_closed, start: _, cmds: _,
+            is_closed, cmds: _,
         },
         style: Style {
             stroke_thickness, stroke_color: _, fill_color: _,
@@ -127,12 +126,10 @@ pub unsafe fn draw_shape_instance(g: &Game, camera: &OrthoCamera2D, shape_instan
         gl::StencilFunc(gl::EQUAL, 1, 1);
         gl::StencilOp(gl::KEEP, gl::KEEP, gl::KEEP);
 
-        g.color_mesh_gl_program.set_uniform_mvp(&Mat4::identity());
         gl::BindVertexArray(solid_fill_strip.vao().gl_id());
         gl::DrawArrays(gl::TRIANGLE_STRIP, 0, solid_fill_strip.vertices.len() as _);
         gl::BindVertexArray(gradient_fill_strip.vao().gl_id());
         gl::DrawArrays(gl::TRIANGLE_STRIP, 0, gradient_fill_strip.vertices.len() as _);
-        g.color_mesh_gl_program.set_uniform_mvp(&mvp);
 
         gl::Enable(gl::DEPTH_TEST);
         gl::Disable(gl::STENCIL_TEST);

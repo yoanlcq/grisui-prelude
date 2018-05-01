@@ -232,7 +232,6 @@ pub struct EditorSystem {
     prev_camera_rotation_z_radians: f32,
     next_camera_rotation_z_radians: f32,
     is_active: bool,
-    primary_color: Rgba<f32>,
     working_shape_name: String,
     text: Text,
     text_position: Vec2<i32>,
@@ -305,7 +304,6 @@ impl EditorSystem {
         Self {
             camera, cursor_vertices, grid_origin_vertices, grid_vertices_1, grid_vertices_01,
             working_shape_name: "default".to_owned(),
-            primary_color: Rgba::red(),
             draw_grid_first: true,
             do_draw_grid: true,
             is_panning_camera: false,
@@ -326,6 +324,9 @@ impl EditorSystem {
     pub const CLEAR_COLOR: Rgba<f32> = Rgba {
         r: 0.1, g: 0.2, b: 1., a: 1.,
     };
+    fn primary_color(&self) -> Rgba<f32> {
+        rgba_from_hsva(self.hsva_sliders.hsva)
+    }
     fn on_enter_editor(&mut self, g: &Game) {
         debug_assert!(!self.is_active);
         self.is_active = true;
@@ -346,7 +347,7 @@ impl EditorSystem {
         g.platform.cursors.normal.set();
     }
 
-    fn add_vertex_at_current_mouse_position(&mut self, g: &Game) {
+    fn add_vertex_at_current_mouse_position(&mut self, g: &Game, is_down: bool) {
         debug_assert!(self.is_active);
         let mut loaded_shapes = g.loaded_shapes.borrow_mut();
         let working_shape = match loaded_shapes.get_mut(&self.working_shape_name) {
@@ -359,14 +360,70 @@ impl EditorSystem {
         if working_shape.path.is_closed {
             return;
         }
+
         if let Some(pos) = g.input.mouse_position() {
-            let color = self.primary_color;
             let mut position = self.camera.viewport_to_world(pos, 0.);
-            // position.z = 0.;
-            working_shape.vertices.vertices.push(Vertex { position, color, });
-            working_shape.vertices.update_and_resize_vbo();
+            if is_down {
+                if working_shape.path.cmds.is_empty() {
+                    working_shape.path.cmds.push(::shape::PathCmd::Start(position.into()));
+                } else {
+                    working_shape.path.cmds.push(::shape::PathCmd::Line { end: position.into() });
+                }
+            } else {
+                use ::shape::PathCmd;
+                let cmd = if working_shape.path.cmds.len() == 1 {
+                    working_shape.path.cmds[0]
+                } else {
+                    working_shape.path.cmds.pop().unwrap()
+                };
+                let ctrl = match cmd {
+                    PathCmd::Start(p) => p,
+                    PathCmd::Line { end } => end,
+                    _ => panic!(),
+                };
+                working_shape.path.cmds.push(::shape::PathCmd::Quadratic { ctrl, end: position.into() });
+            }
+            working_shape.update_vertices_gl();
         }
     }
+
+    fn set_fill_gradient_extrema_to_current_mouse_position(&mut self, g: &Game, is_down: bool) {
+        debug_assert!(self.is_active);
+        let mut loaded_shapes = g.loaded_shapes.borrow_mut();
+        let working_shape = match loaded_shapes.get_mut(&self.working_shape_name) {
+            Some(s) => s,
+            None => {
+                error!("Editor: No shape to edit");
+                return;
+            },
+        };
+
+        if let Some(pos) = g.input.mouse_position() {
+            let mut position = self.camera.viewport_to_world(pos, 0.);
+            if is_down {
+                working_shape.style.fill_gradient.start.position = position;
+            } else {
+                working_shape.style.fill_gradient.end.position = position;
+            }
+            working_shape.update_gradient_fill_strip_gl();
+        }
+    }
+
+    fn deleted_selected(&mut self, g: &Game) {
+        debug_assert!(self.is_active);
+        let mut loaded_shapes = g.loaded_shapes.borrow_mut();
+        let working_shape = match loaded_shapes.get_mut(&self.working_shape_name) {
+            Some(s) => s,
+            None => {
+                error!("Editor: No shape to edit");
+                return;
+            },
+        };
+        working_shape.path.cmds.clear();
+        working_shape.update_vertices_gl();
+        working_shape.path.is_closed = false;
+    }
+
     fn end_polygon(&mut self, g: &Game) {
         debug_assert!(self.is_active);
         let mut loaded_shapes = g.loaded_shapes.borrow_mut();
@@ -382,20 +439,6 @@ impl EditorSystem {
     fn toggle_select_all(&mut self, _g: &Game) {
         debug_assert!(self.is_active);
         unimplemented!{}
-    }
-    fn deleted_selected(&mut self, g: &Game) {
-        debug_assert!(self.is_active);
-        let mut loaded_shapes = g.loaded_shapes.borrow_mut();
-        let working_shape = match loaded_shapes.get_mut(&self.working_shape_name) {
-            Some(s) => s,
-            None => {
-                error!("Editor: No shape to edit");
-                return;
-            },
-        };
-        working_shape.vertices.vertices.clear();
-        working_shape.vertices.update_and_resize_vbo();
-        working_shape.path.is_closed = false;
     }
     fn execute_current_command(&mut self, g: &Game) {
         let cmd = self.command_text.string.clone();
@@ -444,10 +487,19 @@ impl EditorSystem {
         let mut shape = Shape::new(&g.color_mesh_gl_program);
         {
             let source_shape = &g.loaded_shapes.borrow()[&self.working_shape_name];
-            shape.path.is_closed = source_shape.path.is_closed;
-            shape.vertices.vertices = source_shape.vertices.vertices.clone();
+            let &Shape {
+                ref path,
+                ref style, 
+                vertices: _,
+                solid_fill_strip: _,
+                gradient_fill_strip: _,
+            } = source_shape;
+            shape.path = path.clone();
+            shape.style = style.clone();
+            shape.update_vertices_gl();
+            shape.update_solid_fill_strip_gl();
+            shape.update_gradient_fill_strip_gl();
         }
-        shape.vertices.update_and_resize_vbo();
         shape.save(&mut File::create(path).unwrap()).unwrap();
         self.working_shape_name = name.clone();
         g.loaded_shapes.borrow_mut().insert(self.working_shape_name.clone(), shape);
@@ -596,6 +648,7 @@ impl System for EditorSystem {
             return;
         }
 
+
         let normal_camera_rotation_speed = Self::CAMERA_Z_ROTATION_SPEED_DEGREES.to_radians();
 
         match key.code.unwrap() {
@@ -633,6 +686,30 @@ impl System for EditorSystem {
             Keycode::I => self.hsva_sliding_speed.h =  6. * key.is_down() as i32 as f32,
             Keycode::O => self.hsva_sliding_speed.a =  1. * key.is_down() as i32 as f32,
             Keycode::P => self.hsva_sliding_speed.a = -1. * key.is_down() as i32 as f32,
+            Keycode::S => {
+                let mut loaded_shapes = g.loaded_shapes.borrow_mut();
+                let working_shape = loaded_shapes.get_mut(&self.working_shape_name).unwrap();
+                working_shape.style.stroke_color = self.primary_color();
+                working_shape.update_vertices_gl();
+            },
+            Keycode::D => {
+                let mut loaded_shapes = g.loaded_shapes.borrow_mut();
+                let working_shape = loaded_shapes.get_mut(&self.working_shape_name).unwrap();
+                working_shape.style.fill_color = self.primary_color();
+                working_shape.update_solid_fill_strip_gl();
+            },
+            Keycode::Left => {
+                let mut loaded_shapes = g.loaded_shapes.borrow_mut();
+                let working_shape = loaded_shapes.get_mut(&self.working_shape_name).unwrap();
+                working_shape.style.fill_gradient.start.color = self.primary_color();
+                working_shape.update_gradient_fill_strip_gl();
+            },
+            Keycode::Right => {
+                let mut loaded_shapes = g.loaded_shapes.borrow_mut();
+                let working_shape = loaded_shapes.get_mut(&self.working_shape_name).unwrap();
+                working_shape.style.fill_gradient.end.color = self.primary_color();
+                working_shape.update_gradient_fill_strip_gl();
+            },
             _ => (),
         };
     }
@@ -642,10 +719,16 @@ impl System for EditorSystem {
         }
         match btn.button {
             Sdl2MouseButton::Left => if btn.is_down() {
-                self.add_vertex_at_current_mouse_position(g);
+                self.add_vertex_at_current_mouse_position(g, true);
+            } else {
+                self.add_vertex_at_current_mouse_position(g, false);
             },
             Sdl2MouseButton::Middle => {},
-            Sdl2MouseButton::Right => {},
+            Sdl2MouseButton::Right => if btn.is_down() {
+                self.set_fill_gradient_extrema_to_current_mouse_position(g, true);
+            } else {
+                self.set_fill_gradient_extrema_to_current_mouse_position(g, false);
+            },
             Sdl2MouseButton::Unknown => {},
             Sdl2MouseButton::X1 => {},
             Sdl2MouseButton::X2 => {},
@@ -686,7 +769,27 @@ impl System for EditorSystem {
             v.color = cursor_color;
         }
         self.cursor_vertices.update_vbo_range(0..1);
+
+        {
+            let mut loaded_shapes = g.loaded_shapes.borrow_mut();
+            let working_shape = match loaded_shapes.get_mut(&self.working_shape_name) {
+                Some(s) => s,
+                None => {
+                    error!("Editor: No shape to edit");
+                    return;
+                },
+            };
+            let mut direction = 0.;
+            direction += g.input.key(Keycode::KpPlus).is_down() as i32 as f32;
+            direction -= g.input.key(Keycode::KpMinus).is_down() as i32 as f32;
+            direction *= 16.;
+            working_shape.style.stroke_thickness += dt * direction;
+            if working_shape.style.stroke_thickness < 0.1 {
+                working_shape.style.stroke_thickness = 0.1;
+            }
+        }
     }
+
     fn draw(&mut self, g: &Game, gfx_interp: f64) {
         if !self.is_active {
             return;
